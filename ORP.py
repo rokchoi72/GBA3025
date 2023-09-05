@@ -8,24 +8,26 @@ import numpy as np
 import math
 import matplotlib.pyplot as plt
 from pandas_datareader import data as pdr
+
 import yfinance as yf # <== to fix pdr problem (https://github.com/ranaroussi/yfinance)
 yf.pdr_override() # <== that's all it takes :-)
 
-
 #########################################################
-### Step 1                                             ##   
+### Step 0                                             ##   
 ### Select your assets, data range and risk-free rate  ##
 #########################################################
 
-symbols = ['AAPL', 'MSFT', 'SPY', 'GLD']
+
+symbols = ['AAPL', 'MSFT', 'SPY', 'GLD'] 
 start_date = '2010-01-04'
 end_date = '2023-08-31'
 risk_free_rate= 0.01
 
 ## If you like to have a multi-asset portfolio
-## symbols = ['SPY', 'TLT', 'IEF', 'GLD']
-## start_date = '2004-11-18' 
+# symbols = ['SPY', 'TLT', 'IEF', 'GLD']
+# start_date = '2004-11-18' 
 ## start date is GLD inception date
+
 
 symbol_dict = {}
 for symbol in symbols:
@@ -34,11 +36,9 @@ for symbol in symbols:
 data = pd.DataFrame(symbol_dict)
 
 # Historical chart and log return distribution
-(data / data.iloc[0]*100).plot(figsize=(10, 6))
 (data / data.iloc[0]*100).plot(figsize=(8, 5))
 
 rets = np.log(data / data.shift(1))
-rets.hist(bins=40, figsize=(10, 6));
 rets.hist(bins=40, figsize=(8, 5));
 
 annual_ret = rets.mean()*252
@@ -46,18 +46,18 @@ annual_std = rets.std()*math.sqrt(252)
 annual_cov = rets.cov()*252
 
 
-
 #########################################################
-### Step 2                                             ##   
+### Step 1-1                                             ##   
 ### Investment Opportunity Sets                        ##
 #########################################################
 
+
 def port_ret(weights):
     return weights.T @ annual_ret
-    
+
 def port_vol(weights):
     return (weights.T @ annual_cov @ weights )**0.5
-    
+
 noa = len(symbols) # noa = number of assets
 
 prets = []
@@ -92,17 +92,19 @@ print(annual_cov)
 
 
 #########################################################
-### Step 3                                             ##   
+### Step 1-2                                             ##   
 ### Efficient Frontier                                 ##
 #########################################################
 
 import scipy.optimize as sco
+
 
 # Minium Variance Portfolio
 bnds = tuple((0, 1) for x in range(noa))
 cons = ({'type': 'eq', 'fun': lambda x: np.sum(x) - 1})
 eweights = np.array(noa * [1. / noa,])
 optv = sco.minimize(port_vol, eweights, method='SLSQP', bounds=bnds, constraints=cons)
+
 
 # Efficient Frontier => Find min vol at each target return
 cons = ({'type': 'eq', 'fun': lambda x: port_ret(x) - tret},
@@ -133,10 +135,12 @@ print('At MVP, \nVol:', port_vol(optv['x']).round(3), '\nReturn:', port_ret(optv
       '\nSharpe Ratio:', ((port_ret(optv['x'])-risk_free_rate) / port_vol(optv['x'])).round(3), '\nWeights:', optv['x'].round(3))
 
 
+
 #########################################################
-### Step 4                                             ##   
+### Step 2                                             ##   
 ### Optimal Risk Portfolio and Capital Market Line     ##
 #########################################################
+
 
 # Optimal Risk Portfolio (ORP)
 def min_func_sharpe(weights):
@@ -150,18 +154,19 @@ opts = sco.minimize(min_func_sharpe, eweights, method='SLSQP', bounds=bnds, cons
 print('At ORP \nVol:', port_vol(opts['x']).round(3), '\nReturn:', port_ret(opts['x']).round(3), \
       '\nSharpe Ratio:', ((port_ret(opts['x'])-risk_free_rate) / port_vol(opts['x'])).round(3), '\nWeights:', opts['x'].round(3))
 
+
 # Capital Market Line (CML) 
 import scipy.interpolate as sci
 
 ind = np.argmin(tvols)
 evols = tvols[ind:]
 erets = trets[ind:]
+
 tck = sci.splrep(evols, erets)
 
 def f(x):
     ''' Efficient frontier function (splines approximation). '''
     return sci.splev(x, tck, der=0)
-
 def df(x):
     ''' First derivative of efficient frontier function. '''
     return sci.splev(x, tck, der=1)
@@ -175,7 +180,6 @@ def equations(p, rf=risk_free_rate):
 a = risk_free_rate
 b = (port_ret(opts['x'])-risk_free_rate) / port_vol(opts['x']) 
 x = port_ret(opts['x'])
-
 opt = sco.fsolve(equations, [a, b, x]) ## Initial guess for opt = a+bx
 
 plt.figure(figsize=(10, 6))
@@ -191,6 +195,7 @@ plt.plot(annual_std, annual_ret, 'c.', markersize=15.0)
 plt.xlabel('expected volatility')
 plt.ylabel('expected return')
 plt.colorbar(label='Sharpe ratio')
+
 
 # Capital Market Line Formula
 print(f'\nCapital Market Line is \nRp = {a} + {b.round(3)} * Volatility')
