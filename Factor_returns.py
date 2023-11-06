@@ -23,7 +23,8 @@ result = pd.merge(df_five_factor, df_mom, left_index=True, right_index=True)
 
 
 # Step 4. Plot the cumulative returns graph
-cumulative_returns = ((result / 100 + 1).cumprod()) * 100
+cumulative_returns = ((result.drop(columns="RF") / 100 + 1).cumprod()) * 100
+# cumulative_returns = ((result / 100 + 1).cumprod()) * 100  ## if you want to show RF
 cumulative_returns.plot(figsize=(10, 6))
 plt.yscale('log')  # Set y-axis to log scale
 plt.title('Cumulative Returns with Starting Point at 100')
@@ -39,7 +40,8 @@ cagr = cagr.round(2)
 annual_std_dev = annual_std_dev.round(2)
 sharpe_ratio = sharpe_ratio.round(2)
 summary_table = pd.DataFrame({'CAGR': cagr.iloc[-1], 'Std Dev': annual_std_dev, 'SR': sharpe_ratio.iloc[-1]})
-print(summary_table)
+filtered_summary_table = summary_table[summary_table.index != "RF"]
+print(filtered_summary_table)
 
 
 # Step 6. Calculate correlation between factors
