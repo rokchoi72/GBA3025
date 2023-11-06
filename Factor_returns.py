@@ -47,7 +47,7 @@ print(filtered_summary_table)
 # Step 6. Calculate correlation between factors
 correlation_matrix = result.drop(['RF'], axis=1).corr().round(4)
 lower_triangle = correlation_matrix.where(np.tril(np.ones(correlation_matrix.shape), k=-1).astype(bool)) # lower_trangle
-plt.figure(figsize=(6, 3))
+plt.figure(figsize=(5, 3))
 sns.set(font_scale=1)  # Adjust the font size for better readability
 sns.heatmap(lower_triangle, annot=True, cmap='coolwarm', fmt=".2f", linewidths=0.5)
 plt.title('Correlation Matrix (Lower Triangle)')
@@ -89,7 +89,7 @@ print(summary_table)
 
 # Correlation Matrix
 correlation_matrix = result.drop(['RF'], axis=1).corr().round(4)
-plt.figure(figsize=(8, 4))
+plt.figure(figsize=(6, 4))
 sns.set(font_scale=1.2)  # Adjust the font size for better readability
 sns.heatmap(correlation_matrix, annot=True, cmap='coolwarm', fmt=".2f", linewidths=0.5)
 plt.title('Correlation Matrix')
