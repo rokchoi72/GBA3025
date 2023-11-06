@@ -89,8 +89,8 @@ print(summary_table)
 
 # Correlation Matrix
 correlation_matrix = result.drop(['RF'], axis=1).corr().round(4)
-plt.figure(figsize=(6, 4))
-sns.set(font_scale=1.2)  # Adjust the font size for better readability
+plt.figure(figsize=(8, 4))
+sns.set(font_scale=1.0)  # Adjust the font size for better readability
 sns.heatmap(correlation_matrix, annot=True, cmap='coolwarm', fmt=".2f", linewidths=0.5)
 plt.title('Correlation Matrix')
 plt.show()
