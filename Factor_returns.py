@@ -1,6 +1,7 @@
 ## Import libraries
 
 import pandas as pd
+import numpy as np
 import yfinance as yf
 import pandas_datareader
 import pandas_datareader.data as web
