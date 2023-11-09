@@ -26,6 +26,7 @@ result = pd.merge(df_five_factor, df_mom, left_index=True, right_index=True)
 # Step 4. Plot the cumulative returns graph
 cumulative_returns = ((result.drop(columns="RF") / 100 + 1).cumprod()) * 100
 # cumulative_returns = ((result / 100 + 1).cumprod()) * 100  ## if you want to show RF, replace the above line with this line
+cumulative_returns.iloc[0] = 100  # Set the initial value to 100
 cumulative_returns.plot(figsize=(10, 6))
 plt.yscale('log')  # Set y-axis to log scale
 plt.title('Cumulative Returns with Starting Point at 100')
