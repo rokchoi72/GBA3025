@@ -20,7 +20,7 @@ yf.pdr_override() # <== that's all it takes :-)
 
 symbols = ['AAPL', 'MSFT', 'SPY', 'GLD'] 
 start_date = '2010-01-04'
-end_date = '2023-08-31'
+end_date = '2024-08-31'
 risk_free_rate= 0.01
 
 ## If you like to have a multi-asset portfolio
