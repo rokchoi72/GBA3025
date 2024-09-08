@@ -1,16 +1,17 @@
 # install packages if you haven't before
 # pip install pandas-datareader (if you use conda => conda install -c anaconda pandas-datareader)
 # pip install scipy (if you use conda => conda install -c anaconda scipy)
-# pip install yfinance (you need this installation if you run at https://colab.research.google.com)
+
+
+# !pip install yfinance --upgrade (you need this installation if you run at https://colab.research.google.com)
 
 import pandas as pd
 import numpy as np
 import math
 import matplotlib.pyplot as plt
 from pandas_datareader import data as pdr
-
 import yfinance as yf # <== to fix pdr problem (https://github.com/ranaroussi/yfinance)
-yf.pdr_override() # <== that's all it takes :-)
+
 
 #########################################################
 ### Step 0                                             ##   
@@ -31,7 +32,7 @@ risk_free_rate= 0.01
 
 symbol_dict = {}
 for symbol in symbols:
-    symbol_df = pdr.get_data_yahoo(symbol, start=start_date, end=end_date)
+    symbol_df = yf.download(symbol, start=start_date, end=end_date)
     symbol_dict[symbol] = symbol_df["Adj Close"]
 data = pd.DataFrame(symbol_dict)
 
