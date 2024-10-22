@@ -1,0 +1,42 @@
+pip install yfinance pandas
+
+import yfinance as yf
+import pandas as pd
+
+# Function to calculate annual returns
+def calculate_annual_returns(prices):
+    # Allow NaN values for missing data
+    returns = prices.resample('A').last().pct_change(fill_method=None)
+    return returns
+
+# Updated list of random stock tickers (replaced FB with META)
+stock_list = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'TSLA', 'META', 'NFLX', 'NVDA', 'JPM', 'BAC',
+              'WMT', 'DIS', 'V', 'PG', 'MA', 'KO', 'PFE', 'INTC', 'CSCO', 'PEP']
+
+# Fetch historical data for the stocks
+data = yf.download(stock_list, start="2000-01-01", end="2023-12-31")['Adj Close']
+
+# Calculate annual returns for each stock, keeping missing values (NaN)
+annual_returns = data.resample('A').last().pct_change(fill_method=None)
+
+# Reset the index to ensure 'Date' is a column
+annual_returns = annual_returns.reset_index()
+
+# Convert the 'Date' column to year format only
+annual_returns['Date'] = annual_returns['Date'].dt.year
+
+# Melt the data to long format to prepare for pivot
+melted_data = annual_returns.melt(id_vars='Date', var_name='Ticker', value_name='Annual_Return')
+
+# Pivot the data to get panel data format with stocks as rows and years as columns
+panel_data = melted_data.pivot(index='Ticker', columns='Date', values='Annual_Return')
+
+# Display the final dataframe
+print(panel_data.head())
+
+# Save the panel data to CSV
+panel_data.to_csv('annual_stock_returns_panel.csv')
+
+# Optionally, download the CSV in Colab
+from google.colab import files
+files.download('annual_stock_returns_panel.csv')
