@@ -1,4 +1,7 @@
-pip install yfinance pandas
+# pip install yfinance pandas
+
+
+##### Annual Stock Return #####
 
 import yfinance as yf
 import pandas as pd
@@ -40,3 +43,48 @@ panel_data.to_csv('annual_stock_returns_panel.csv')
 # Optionally, download the CSV in Colab
 from google.colab import files
 files.download('annual_stock_returns_panel.csv')
+
+
+
+##### Monthly Stock Return #####
+
+import yfinance as yf
+import pandas as pd
+
+# Function to calculate monthly returns
+def calculate_monthly_returns(prices):
+    # Allow NaN values for missing data
+    returns = prices.resample('M').last().pct_change(fill_method=None)
+    return returns
+
+# Updated list of random stock tickers
+stock_list = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'TSLA', 'META', 'NFLX', 'NVDA', 'JPM', 'BAC',
+              'WMT', 'DIS', 'V', 'PG', 'MA', 'KO', 'PFE', 'INTC', 'CSCO', 'PEP']
+
+# Fetch historical data for the stocks
+data = yf.download(stock_list, start="2000-01-01", end="2023-12-31")['Adj Close']
+
+# Calculate monthly returns for each stock, keeping missing values (NaN)
+monthly_returns = calculate_monthly_returns(data)
+
+# Reset the index to ensure 'Date' is a column
+monthly_returns = monthly_returns.reset_index()
+
+# Convert the 'Date' column to year-month format only
+monthly_returns['Date'] = monthly_returns['Date'].dt.to_period('M')
+
+# Melt the data to long format to prepare for pivot
+melted_data = monthly_returns.melt(id_vars='Date', var_name='Ticker', value_name='Monthly_Return')
+
+# Pivot the data to get panel data format with stocks as rows and months as columns
+panel_data = melted_data.pivot(index='Ticker', columns='Date', values='Monthly_Return')
+
+# Display the final dataframe
+print(panel_data.head())
+
+# Save the panel data to CSV
+panel_data.to_csv('monthly_stock_returns_panel.csv')
+
+# Optionally, download the CSV in Colab
+from google.colab import files
+files.download('monthly_stock_returns_panel.csv')
