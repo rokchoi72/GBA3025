@@ -1,54 +1,52 @@
-# install packages if you haven't before
-# pip install pandas-datareader (if you use conda => conda install -c anaconda pandas-datareader)
-# pip install scipy (if you use conda => conda install -c anaconda scipy)
-
-
-# !pip install yfinance --upgrade (you need this installation if you run at https://colab.research.google.com)
-
-import pandas as pd
-import numpy as np
-import math
-import matplotlib.pyplot as plt
-from pandas_datareader import data as pdr
-import yfinance as yf # <== to fix pdr problem (https://github.com/ranaroussi/yfinance)
-
-
 #########################################################
 ### Step 0                                             ##   
 ### Select your assets, data range and risk-free rate  ##
 #########################################################
 
+# 1) Installs (in their own cell; no comments on the same line)
+# !pip install pandas-datareader
+# !pip install scipy
+# !pip install --upgrade yfinance
 
-symbols = ['AAPL', 'MSFT', 'SPY', 'GLD'] 
+
+# 2) Imports
+import pandas as pd
+import numpy as np
+import math
+import matplotlib.pyplot as plt
+import yfinance as yf
+
+# 3) Params
+symbols = ['AAPL', 'MSFT', 'SPY', 'GLD']
 start_date = '2010-01-04'
-end_date = '2024-08-31'
-risk_free_rate= 0.01
+end_date   = '2025-08-31'
+risk_free_rate = 0.02
 
-## If you like to have a multi-asset portfolio
+# If you like to have a multi-asset portfolio
 # symbols = ['SPY', 'TLT', 'IEF', 'GLD']
 # start_date = '2004-11-18' 
-## start date is GLD inception date
+# start date is GLD inception date
 
 
-symbol_dict = {}
-for symbol in symbols:
-    symbol_df = yf.download(symbol, start=start_date, end=end_date)
-    symbol_dict[symbol] = symbol_df["Adj Close"]
-data = pd.DataFrame(symbol_dict)
+# 4) Download prices (ensure Adj Close is present)
+data = yf.download(symbols, start=start_date, end=end_date, auto_adjust=False)['Adj Close']
 
-# Historical chart and log return distribution
-(data / data.iloc[0]*100).plot(figsize=(8, 5))
+# 5) Charts
+(data / data.iloc[0] * 100).plot(figsize=(8,5), title='Price (Indexed to 100)')
+plt.ylabel('Index Level'); plt.show()
 
-rets = np.log(data / data.shift(1))
-rets.hist(bins=40, figsize=(8, 5));
+rets = np.log(data / data.shift(1)).dropna()
+rets.hist(bins=40, figsize=(8,5))
+plt.suptitle('Daily Log Return Distributions'); plt.show()
 
-annual_ret = rets.mean()*252
-annual_std = rets.std()*math.sqrt(252)
-annual_cov = rets.cov()*252
+# 6) Annualized stats
+annual_ret = rets.mean() * 252
+annual_std = rets.std() * math.sqrt(252)
+annual_cov = rets.cov() * 252
 
 
 #########################################################
-### Step 1-1                                             ##   
+### Step 1-1                                           ##   
 ### Investment Opportunity Sets                        ##
 #########################################################
 
@@ -85,11 +83,10 @@ summary_table = pd.DataFrame({ 'R': annual_ret, 'SD': annual_std })
 print("Annualized Returns and Standard Deviations:")
 print(summary_table)
 
-print("\nAnnualized Correlation Matrix:")
+print("\nAnnualized Covariance Matrix:")
 print(annual_cov)
 
 # print(f'Volatiltiy: \n{(annual_std).round(4)} \n\nReturn: \n{(annual_ret).round(4)} \n\nCorrelation: \n{rets.corr().round(4)}')
-
 
 
 #########################################################
