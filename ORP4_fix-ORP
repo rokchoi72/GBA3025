@@ -16,9 +16,11 @@ import matplotlib.pyplot as plt
 import yfinance as yf
 
 # 3) Parameters
-symbols = ['SPY','TLT','IEF','GLD']  
-# Example sets: ['GLD','SPY','MSFT','AAPL'] or ['SPY','TLT','IEF','GLD'] or ['SPY', 'EWU', 'EWQ', 'EWG']
-start_date = '2000-01-01'
+symbols = ['SPY', 'FXI', 'EWQ', 'EWG']  
+# 4 Equity Market Index => ['SPY', 'FXI', 'EWQ', 'EWG']
+# Stock Pick Genisu     => ['GLD','SPY','MSFT','AAPL']
+# All Wether Portfolio  => ['SPY','TLT','IEF','GLD']
+start_date = '2005-01-01'
 end_date   = '2025-08-31'
 risk_free_rate = 0.02   # assumed annual risk-free rate
 
