@@ -133,7 +133,6 @@ print('At MVP, \nVol:', port_vol(optv['x']).round(3), '\nReturn:', port_ret(optv
       '\nSharpe Ratio:', ((port_ret(optv['x'])-risk_free_rate) / port_vol(optv['x'])).round(3), '\nWeights:', optv['x'].round(3))
 
 
-
 #########################################################
 ### Step 2                                             ##   
 ### Optimal Risk Portfolio and Capital Market Line     ##
