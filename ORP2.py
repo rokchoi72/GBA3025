@@ -178,6 +178,8 @@ plt.xticks(rotation=0)
 plt.tight_layout()
 plt.show()
 
+
+
 #########################################################
 ### Step 2                                             ##   
 ### Optimal Risk Portfolio and Capital Market Line     ##
@@ -204,13 +206,13 @@ orp_sr  = float((orp_ret - risk_free_rate) / orp_vol)
 
 # ORP weights (%만 표시)
 orp_weights_s = pd.Series(orp_w, index=symbols)
-orp_weights_s[orp_weights_s.abs() < 1e-6] = 0.0  # tiny noise -> 0
+orp_weights_s[orp_weights_s.abs() < 1e-6] = 0.0
 orp_weights_df = pd.DataFrame({
     "Weight (%)": (orp_weights_s * 100).round(2)
 }).sort_values("Weight (%)", ascending=False)
 
 # ---------- CML 준비 (효율적 경계 스플라인) ----------
-# (Step 1-2에서 계산된 tvols, trets, max_return 사용)
+# (Step 1-2의 tvols, trets, max_return 사용)
 ind  = np.argmin(tvols)
 evols = tvols[ind:]
 erets = trets[ind:]
@@ -234,34 +236,39 @@ b0 = orp_sr
 x0 = port_vol(opts['x'])
 opt = sco.fsolve(equations, [a0, b0, x0])  # [a, b, x*]
 
-# ---------- Plot: ORP & CML ----------
-plt.figure(figsize=(10, 7))
-sc = plt.scatter(pvols, prets, c=(prets - risk_free_rate) / pvols,
-                 marker='.', cmap='coolwarm', alpha=0.85, label='Random Portfolios')
-plt.plot(evols, erets, 'b', lw=4.0, label='Efficient Frontier')
+# ---------- Plot: ORP & CML (빈칸 없이 텍스트 붙이기) ----------
+fig = plt.figure(figsize=(10, 7), constrained_layout=True)
+gs  = fig.add_gridspec(nrows=2, ncols=1, height_ratios=[6, 1], hspace=0.03)
+
+ax = fig.add_subplot(gs[0])        # 위: 그래프
+ax_txt = fig.add_subplot(gs[1])    # 아래: 텍스트
+ax_txt.axis('off')
+
+sc = ax.scatter(pvols, prets, c=(prets - risk_free_rate) / pvols,
+                marker='.', cmap='coolwarm', alpha=0.85, label='Random Portfolios')
+ax.plot(evols, erets, 'b', lw=4.0, label='Efficient Frontier')
 
 # CML
 cx = np.linspace(0.0, max_return + 0.05, 200)
-plt.plot(cx, opt[0] + opt[1]*cx, 'r', lw=1.8, label='Capital Market Line')
+ax.plot(cx, opt[0] + opt[1]*cx, 'r', lw=1.8, label='Capital Market Line')
 
 # Tangency point & ORP
-plt.plot(opt[2], f(opt[2]), 'y*', markersize=15.0, label='Tangency Point')
-plt.plot(orp_vol, orp_ret, 'ks', markersize=6, label='ORP (Max Sharpe)')
+ax.plot(opt[2], f(opt[2]), 'y*', markersize=15.0, label='Tangency Point')
+ax.plot(orp_vol, orp_ret, 'ks', markersize=6, label='ORP (Max Sharpe)')
 
 # 개별 자산
-plt.plot(annual_std, annual_ret, 'c.', markersize=15.0, label='Assets')
+ax.plot(annual_std, annual_ret, 'c.', markersize=15.0, label='Assets')
 
-plt.grid(True, alpha=0.3)
-plt.axhline(0, color='k', ls='--', lw=1.2)
-plt.axvline(0, color='k', ls='--', lw=1.2)
-plt.xlabel('expected volatility')
-plt.ylabel('expected return')
-plt.colorbar(sc, label='Sharpe ratio')
-plt.title("Optimal Risky Portfolio & CML")   
-plt.legend(loc='best')
-plt.tight_layout()
+ax.grid(True, alpha=0.3)
+ax.axhline(0, color='k', ls='--', lw=1.2)
+ax.axvline(0, color='k', ls='--', lw=1.2)
+ax.set_xlabel('expected volatility')
+ax.set_ylabel('expected return')
+fig.colorbar(sc, ax=ax, label='Sharpe ratio')
+ax.set_title("Optimal Risky Portfolio & CML")
+ax.legend(loc='best')
 
-# ---------- 그래프 아래에 ORP 결과값 표시 ----------
+# 그래프 바로 아래 텍스트(모노스페이스로 정렬 유지)
 result_text = (
     "================ Optimal Risk Portfolio (Max Sharpe, Long-only) ================\n"
     "Assets & Weights (%):\n"
@@ -270,11 +277,10 @@ result_text = (
     f"- Volatility (σ):  {orp_vol:.3f}\n"
     f"- Return (μ):      {orp_ret:.3f}\n"
     f"- Sharpe Ratio:    {orp_sr:.3f}   (rf = {risk_free_rate:.2%})\n"
-    "===============================================================================\n"
+    "==============================================================================="
 )
-
-# y 좌표는 그림 아래로 살짝 내림 (필요시 -0.25 ~ -0.35 사이 조절)
-plt.figtext(0.5, -0.27, result_text, wrap=True, ha="center", va="top", fontsize=9, family='monospace')
+ax_txt.text(0.5, 1.0, result_text, ha='center', va='top',
+            fontsize=9, family='monospace', transform=ax_txt.transAxes)
 
 plt.show()
 
