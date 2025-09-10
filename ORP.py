@@ -3,7 +3,7 @@
 ### Select your assets, data range and risk-free rate  ##
 #########################################################
 
-# 1) Installs (in their own cell; no comments on the same line)
+# 1) Installs (No need this step if you run at Google Colab)
 # !pip install pandas-datareader
 # !pip install scipy
 # !pip install --upgrade yfinance
