@@ -1,5 +1,5 @@
 #########################################################
-### Step 0                                             ##   
+### Step 0                                             ##
 ### Select your assets, data range and risk-free rate  ##
 #########################################################
 
@@ -14,42 +14,62 @@ import numpy as np
 import math
 import matplotlib.pyplot as plt
 import yfinance as yf
-import scipy.optimize as sco
-import scipy.interpolate as sci
 
-# 3) Params
-symbols = ['GLD', 'SPY', 'MSFT', 'AAPL']  # ['SPY', 'TLT', 'IEF', 'GLD'] or ['SPY', 'EWU', 'EWQ', 'EWG'] or ['GLD', 'SPY', 'MSFT', 'AAPL']
+# 3) Parameters
+symbols = ['SPY','TLT','IEF','GLD']  
+# Example sets: ['GLD','SPY','MSFT','AAPL'] or ['SPY','TLT','IEF','GLD'] or ['SPY', 'EWU', 'EWQ', 'EWG']
 start_date = '2000-01-01'
 end_date   = '2025-08-31'
-risk_free_rate = 0.02
+risk_free_rate = 0.02   # assumed annual risk-free rate
 
-# 4) Download prices
+# 4) Download adjusted close prices
 data = yf.download(symbols, start=start_date, end=end_date, auto_adjust=False)['Adj Close']
 
-# --- FIX: force column order to match `symbols` ---
-data = data.loc[:, [s for s in symbols if s in data.columns]]
+# --- Ensure column order matches `symbols` (drop tickers not available) ---
+if isinstance(data, pd.Series):
+    data = data.to_frame()  # in case of single ticker
+cols_in_data = [s for s in symbols if s in data.columns]
+data = data.loc[:, cols_in_data].dropna(how='all')
 
-# 5) Returns
+# 5) Charts
+# (a) Price indexed to 100
+(data / data.iloc[0] * 100).plot(figsize=(8,5), title='Price (Indexed to 100)')
+plt.ylabel('Index Level')
+plt.tight_layout()
+plt.show()
+
+# (b) Daily log return distributions
 rets = np.log(data / data.shift(1)).dropna()
+rets.hist(bins=40, figsize=(8,5))
+plt.suptitle('Daily Log Return Distributions')
+plt.tight_layout()
+plt.show()
 
-# 6) Annualized stats (reindex to keep consistent order)
-annual_ret = (rets.mean() * 252).reindex(data.columns)
-annual_std = (rets.std()  * math.sqrt(252)).reindex(data.columns)
-annual_cov = (rets.cov()  * 252).reindex(index=data.columns, columns=data.columns)
-annual_corr = rets.corr().reindex(index=data.columns, columns=data.columns)
+# 6) Annualized statistics
+annual_ret  = (rets.mean() * 252).reindex(data.columns)
+annual_std  = (rets.std()  * math.sqrt(252)).reindex(data.columns)
+annual_cov  = (rets.cov()  * 252).reindex(index=data.columns, columns=data.columns)
+annual_corr =  rets.corr().reindex(index=data.columns, columns=data.columns)
 
-# Summary table
+# 7) Sharpe Ratios
+sharpe_ratio = (annual_ret - risk_free_rate) / annual_std
+
+# 8) Summary table
 summary_table = pd.DataFrame({
-    'R': annual_ret.round(4),
-    'SD': annual_std.round(4)
+    'R':  annual_ret.round(4),
+    'SD': annual_std.round(4),
+    'SR': sharpe_ratio.round(4)
 })
 
-print("\n=== Annualized Returns and Standard Deviations ===")
+print("\n=== Annualized Returns, Standard Deviations, and Sharpe Ratios ===")
 print(summary_table)
+
 print("\n=== Annualized Covariance Matrix ===")
 print(annual_cov.round(4))
+
 print("\n=== Correlation Matrix ===")
 print(annual_corr.round(4))
+
 
 #########################################################
 ### Step 1-1  Investment Opportunity Set               ##
