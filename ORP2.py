@@ -8,7 +8,6 @@
 # !pip install scipy
 # !pip install --upgrade yfinance
 
-
 # 2) Imports
 import pandas as pd
 import numpy as np
@@ -17,18 +16,12 @@ import matplotlib.pyplot as plt
 import yfinance as yf
 
 # 3) Params
-symbols = ['GLD', 'SPY', 'MSFT', 'AAPL']
-start_date = '2010-01-04'
+symbols = ['SPY', 'EWU', 'EWQ', 'EWG']  # or ['SPY', 'TLT', 'IEF', 'GLD']
+start_date = '2000-01-01'
 end_date   = '2025-08-31'
 risk_free_rate = 0.02
 
-# You can construct your preferred multi-asset portfolio
-# symbols = ['SPY', 'TLT', 'IEF', 'GLD']
-# start_date = '2004-11-18' 
-# start date is GLD inception date
-
-
-# 4) Download prices (ensure Adj Close is present)
+# 4) Download prices
 data = yf.download(symbols, start=start_date, end=end_date, auto_adjust=False)['Adj Close']
 
 # 5) Charts
@@ -43,9 +36,13 @@ plt.suptitle('Daily Log Return Distributions'); plt.show()
 annual_ret = rets.mean() * 252
 annual_std = rets.std() * math.sqrt(252)
 annual_cov = rets.cov() * 252
+annual_corr = rets.corr()
 
-# Combine into a table and print return, SD, Covariance
-summary_table = pd.DataFrame({ 'R': annual_ret.round(4), 'SD': annual_std.round(4) })
+# Summary table
+summary_table = pd.DataFrame({
+    'R': annual_ret.round(4),
+    'SD': annual_std.round(4)
+})
 
 print("\n=== Annualized Returns and Standard Deviations ===")
 print(summary_table)
@@ -53,6 +50,8 @@ print(summary_table)
 print("\n=== Annualized Covariance Matrix ===")
 print(annual_cov.round(4))
 
+print("\n=== Correlation Matrix ===")
+print(annual_corr.round(4))
 
 #########################################################
 ### Step 1-1                                           ##   
