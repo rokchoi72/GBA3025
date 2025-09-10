@@ -319,3 +319,63 @@ plt.ylabel("Weight (%)")
 plt.xticks(rotation=0)
 plt.tight_layout()
 plt.show()
+
+
+#########################################################
+### Step 0                                             ##   
+### Select your assets, data range and rf and SR       ##
+#########################################################
+
+# 1) Installs (in their own cell; no comments on the same line)
+# !pip install pandas-datareader
+# !pip install scipy
+# !pip install --upgrade yfinance
+
+# 2) Imports
+import pandas as pd
+import numpy as np
+import math
+import matplotlib.pyplot as plt
+import yfinance as yf
+
+# 3) Params
+symbols = ['SPY', 'EWU', 'EWQ', 'EWG']
+start_date = '2010-01-01'
+end_date   = '2025-08-31'
+risk_free_rate = 0.02   # assumed annual risk-free rate
+
+# 4) Download prices
+data = yf.download(symbols, start=start_date, end=end_date, auto_adjust=False)['Adj Close']
+
+# 5) Charts
+(data / data.iloc[0] * 100).plot(figsize=(8,5), title='Price (Indexed to 100)')
+plt.ylabel('Index Level'); plt.show()
+
+rets = np.log(data / data.shift(1)).dropna()
+rets.hist(bins=40, figsize=(8,5))
+plt.suptitle('Daily Log Return Distributions'); plt.show()
+
+# 6) Annualized stats
+annual_ret = rets.mean() * 252
+annual_std = rets.std() * math.sqrt(252)
+annual_cov = rets.cov() * 252
+annual_corr = rets.corr()
+
+# Sharpe Ratio
+sharpe_ratio = (annual_ret - risk_free_rate) / annual_std
+
+# Summary table
+summary_table = pd.DataFrame({
+    'R': annual_ret.round(4),
+    'SD': annual_std.round(4),
+    'SR': sharpe_ratio.round(4)
+})
+
+print("\n=== Annualized Returns, Standard Deviations, and Sharpe Ratios ===")
+print(summary_table)
+
+print("\n=== Annualized Covariance Matrix ===")
+print(annual_cov.round(4))
+
+print("\n=== Correlation Matrix ===")
+print(annual_corr.round(4))
