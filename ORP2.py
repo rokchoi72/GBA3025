@@ -53,6 +53,7 @@ print(summary_table)
 print("\n=== Annualized Covariance Matrix ===")
 print(annual_cov.round(4))
 
+
 #########################################################
 ### Step 1-1                                           ##   
 ### Investment Opportunity Sets (labels fixed)         ##
@@ -76,19 +77,19 @@ for _ in range(2500):
 prets = np.array(prets)
 pvols = np.array(pvols)
 
-# --- 개별 자산 좌표를 symbols 순서로 정렬 ---
-idx = [s for s in symbols if s in annual_ret.index]  # 혹시 다운로드 실패 자산 제외
+# --- Arrange individual asset coordinates in symbols order ---
+idx = [s for s in symbols if s in annual_ret.index]  # Exclude assets that failed download
 asset_ret = annual_ret.reindex(idx).values
 asset_vol = annual_std.reindex(idx).values
 
 # Plot
-plt.figure(figsize=(10, 6))
+plt.figure(figsize=(8, 5))
 sc = plt.scatter(pvols, prets, c=(prets - risk_free_rate) / pvols,
                  marker='o', cmap='coolwarm', alpha=0.85)
-# 개별 자산(노란 점) 별도 표시
+# Highlight individual assets (yellow dots)
 plt.scatter(asset_vol, asset_ret, s=70, facecolors='yellow', edgecolors='black', zorder=4)
 
-# 각 자산 라벨
+# Labels for each asset
 for x, y, name in zip(asset_vol, asset_ret, idx):
     plt.annotate(name, (x, y), textcoords="offset points", xytext=(6, 6),
                  ha='left', fontsize=9, zorder=5)
@@ -97,8 +98,8 @@ plt.grid(True, alpha=0.3)
 plt.xlabel('expected volatility')
 plt.ylabel('expected return')
 plt.title('Investment Opportunity Set')
-plt.colorbar(sc, label='Sharpe ratio')
 plt.show()
+
 
 #########################################################
 ### Step 1-2                                           ##   
@@ -130,55 +131,74 @@ for tret in trets:
     tvols.append(res['fun'])
 tvols = np.array(tvols)
 
-# --- Plot Efficient Frontier ---
-plt.figure(figsize=(10, 6))
-plt.scatter(pvols, prets, c=(prets-risk_free_rate) / pvols,
-            marker='.', alpha=0.8, cmap='coolwarm')
-plt.plot(tvols, trets, 'b', lw=4.0)
-plt.plot(port_vol(optv['x']), port_ret(optv['x']),
-         'r*', markersize=15.0, label="MVP")
-plt.plot(annual_std, annual_ret, 'y.', markersize=15.0)
-
-plt.grid(True)
-plt.xlabel('expected volatility')
-plt.ylabel('expected return')
-plt.colorbar(label='Sharpe ratio')
-plt.title("Efficient Frontier")   
-plt.legend()
-plt.show()
-
-# ================== Pretty MVP Output ==================
-mvp_w     = optv.x
-mvp_vol   = float(port_vol(mvp_w))
-mvp_ret   = float(port_ret(mvp_w))
-mvp_sr    = float((mvp_ret - risk_free_rate) / mvp_vol)
+# Compute MVP stats
+mvp_w   = optv.x
+mvp_vol = float(port_vol(mvp_w))
+mvp_ret = float(port_ret(mvp_w))
+mvp_sr  = float((mvp_ret - risk_free_rate) / mvp_vol)
 
 # Weights as % only
 weights_s = pd.Series(mvp_w, index=symbols)
-weights_s[weights_s.abs() < 1e-6] = 0.0  # 작은 값은 0 처리
+weights_s[weights_s.abs() < 1e-6] = 0.0  # small values → 0
 weights_df = pd.DataFrame({
     "Weight (%)": (weights_s * 100).round(2)   
 }).sort_values("Weight (%)", ascending=False)
 
-print("\n================ Minimum-Variance Portfolio (Long-only) ================")
-print("Assets & Weights (%):\n")
-print(weights_df.to_string())
-print("\nSummary Stats:")
-print(f"- Volatility (σ):  {mvp_vol:.3f}")
-print(f"- Return (μ):      {mvp_ret:.3f}")
-print(f"- Sharpe Ratio:    {mvp_sr:.3f}   (rf = {risk_free_rate:.2%})")
-print("=======================================================================\n")
+# --- Efficient Frontier + MVP text block (same style as ORP) ---
+fig = plt.figure(figsize=(7, 8), constrained_layout=True)
+gs  = fig.add_gridspec(nrows=2, ncols=1, height_ratios=[6, 1], hspace=0.03)
 
-# (선택) 가중치 바 차트
-plt.figure(figsize=(7,4))
+ax = fig.add_subplot(gs[0])      # Top: graph
+ax_txt = fig.add_subplot(gs[1])  # Bottom: text
+ax_txt.axis('off')
+
+sc = ax.scatter(pvols, prets, c=(prets - risk_free_rate) / pvols,
+                marker='o', alpha=0.85, cmap='coolwarm', label='Random Portfolios')
+ax.plot(tvols, trets, 'b', lw=4.0, label='Efficient Frontier')
+ax.plot(port_vol(optv['x']), port_ret(optv['x']),
+        'ks', markersize=8.0, label="MVP")  # black square marker
+
+# Highlight individual assets (yellow dots with black outline) + labels
+ax.scatter(annual_std, annual_ret, s=70, facecolors='yellow',
+           edgecolors='black', zorder=4, label='Assets')
+for x, y, name in zip(annual_std, annual_ret, annual_ret.index):
+    ax.annotate(name, (x, y), textcoords="offset points",
+                xytext=(6, 6), ha='left', fontsize=9, zorder=5)
+
+ax.grid(True, alpha=0.3)
+ax.set_xlabel('expected volatility')
+ax.set_ylabel('expected return')
+ax.set_title("Efficient Frontier")
+ax.legend(loc='best')
+
+# MVP text block under the graph
+result_text = (
+    "\n"  # blank line above header
+    "\n"  # blank line above header
+    "================ Minimum-Variance Portfolio (Long-only) ================\n"
+    "\n"  # blank line after header
+    "Assets & Weights (%):\n"
+    f"\n{weights_df.to_string()}\n\n"   # extra blank lines around table
+    "Summary Stats:\n"
+    f"- Volatility (σ):  {mvp_vol:.3f}\n"
+    f"- Return (μ):      {mvp_ret:.3f}\n"
+    f"- Sharpe Ratio:    {mvp_sr:.3f}  \n"
+    "\n"  # blank line before footer
+    "=======================================================================\n"
+    )
+ax_txt.text(0.5, 1.0, result_text, ha='center', va='top',
+            fontsize=9, family='monospace', transform=ax_txt.transAxes)
+
+plt.show()
+
+# --- MVP Weights Bar Chart (40% smaller) ---
+plt.figure(figsize=(4.2, 2.4))
 (weights_s * 100).sort_values(ascending=False).plot(kind='bar')
 plt.title("MVP Weights by Asset")
 plt.ylabel("Weight (%)")
 plt.xticks(rotation=0)
 plt.tight_layout()
 plt.show()
-
-
 
 #########################################################
 ### Step 2                                             ##   
@@ -204,15 +224,14 @@ orp_vol = float(port_vol(orp_w))
 orp_ret = float(port_ret(orp_w))
 orp_sr  = float((orp_ret - risk_free_rate) / orp_vol)
 
-# ORP weights (%만 표시)
+# ORP weights (show % only)
 orp_weights_s = pd.Series(orp_w, index=symbols)
 orp_weights_s[orp_weights_s.abs() < 1e-6] = 0.0
 orp_weights_df = pd.DataFrame({
     "Weight (%)": (orp_weights_s * 100).round(2)
 }).sort_values("Weight (%)", ascending=False)
 
-# ---------- CML 준비 (효율적 경계 스플라인) ----------
-# (Step 1-2의 tvols, trets, max_return 사용)
+# ---------- CML prep (efficient frontier spline) ----------
 ind  = np.argmin(tvols)
 evols = tvols[ind:]
 erets = trets[ind:]
@@ -236,12 +255,12 @@ b0 = orp_sr
 x0 = port_vol(opts['x'])
 opt = sco.fsolve(equations, [a0, b0, x0])  # [a, b, x*]
 
-# ---------- Plot: ORP & CML (빈칸 없이 텍스트 붙이기) ----------
-fig = plt.figure(figsize=(10, 7), constrained_layout=True)
+# ---------- Plot: ORP & CML ----------
+fig = plt.figure(figsize=(7, 8), constrained_layout=True)
 gs  = fig.add_gridspec(nrows=2, ncols=1, height_ratios=[6, 1], hspace=0.03)
 
-ax = fig.add_subplot(gs[0])        # 위: 그래프
-ax_txt = fig.add_subplot(gs[1])    # 아래: 텍스트
+ax = fig.add_subplot(gs[0])        # Top: graph
+ax_txt = fig.add_subplot(gs[1])    # Bottom: text
 ax_txt.axis('off')
 
 sc = ax.scatter(pvols, prets, c=(prets - risk_free_rate) / pvols,
@@ -252,40 +271,49 @@ ax.plot(evols, erets, 'b', lw=4.0, label='Efficient Frontier')
 cx = np.linspace(0.0, max_return + 0.05, 200)
 ax.plot(cx, opt[0] + opt[1]*cx, 'r', lw=1.8, label='Capital Market Line')
 
-# Tangency point & ORP
-ax.plot(opt[2], f(opt[2]), 'y*', markersize=15.0, label='Tangency Point')
-ax.plot(orp_vol, orp_ret, 'ks', markersize=6, label='ORP (Max Sharpe)')
+# ORP (Yellow Star with Black Outline)
+ax.scatter(orp_vol, orp_ret, s=250, marker='*',
+           facecolors='yellow', edgecolors='black',
+           linewidths=1.2, zorder=5, label='ORP (Max Sharpe)')
 
-# 개별 자산
-ax.plot(annual_std, annual_ret, 'c.', markersize=15.0, label='Assets')
+# Individual assets (yellow dots + labels)
+ax.scatter(annual_std, annual_ret, s=70, facecolors='yellow', edgecolors='black', zorder=4, label='Assets')
+for x, y, name in zip(annual_std, annual_ret, annual_ret.index):
+    ax.annotate(name, (x, y), textcoords="offset points", xytext=(6, 6),
+                ha='left', fontsize=9, zorder=5)
 
 ax.grid(True, alpha=0.3)
 ax.axhline(0, color='k', ls='--', lw=1.2)
 ax.axvline(0, color='k', ls='--', lw=1.2)
 ax.set_xlabel('expected volatility')
 ax.set_ylabel('expected return')
-fig.colorbar(sc, ax=ax, label='Sharpe ratio')
 ax.set_title("Optimal Risky Portfolio & CML")
 ax.legend(loc='best')
 
-# 그래프 바로 아래 텍스트(모노스페이스로 정렬 유지)
+
+# Text right below the chart (keep monospace alignment)
 result_text = (
+    "\n"  # blank line above header
+    "\n"  # blank line above header
     "================ Optimal Risk Portfolio (Max Sharpe, Long-only) ================\n"
+    "\n"  # blank line after header
     "Assets & Weights (%):\n"
     f"{orp_weights_df.to_string()}\n\n"
     "Summary Stats:\n"
     f"- Volatility (σ):  {orp_vol:.3f}\n"
     f"- Return (μ):      {orp_ret:.3f}\n"
-    f"- Sharpe Ratio:    {orp_sr:.3f}   (rf = {risk_free_rate:.2%})\n"
-    "==============================================================================="
+    f"- Sharpe Ratio:    {orp_sr:.3f}\n"
+    f"  (rf = {risk_free_rate:.2%})\n"
+    "\n"  # blank line before footer
+    "===============================================================================\n"
 )
 ax_txt.text(0.5, 1.0, result_text, ha='center', va='top',
             fontsize=9, family='monospace', transform=ax_txt.transAxes)
 
 plt.show()
 
-# (선택) ORP 가중치 바 차트
-plt.figure(figsize=(7,4))
+# ORP weights bar chart (40% smaller)
+plt.figure(figsize=(4.2, 2.4))
 (orp_weights_s * 100).sort_values(ascending=False).plot(kind='bar')
 plt.title("ORP Weights by Asset")
 plt.ylabel("Weight (%)")
