@@ -22,7 +22,7 @@ start_date = '2010-01-04'
 end_date   = '2025-08-31'
 risk_free_rate = 0.02
 
-# If you like to have a multi-asset portfolio
+# You can construct your preferred multi-asset portfolio
 # symbols = ['SPY', 'TLT', 'IEF', 'GLD']
 # start_date = '2004-11-18' 
 # start date is GLD inception date
