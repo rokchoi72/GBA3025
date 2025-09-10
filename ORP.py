@@ -17,7 +17,7 @@ import matplotlib.pyplot as plt
 import yfinance as yf
 
 # 3) Params
-symbols = ['GLD', 'SPY', 'MSFT', 'APPL']
+symbols = ['GLD', 'SPY', 'MSFT', 'AAPL']
 start_date = '2010-01-04'
 end_date   = '2025-08-31'
 risk_free_rate = 0.02
