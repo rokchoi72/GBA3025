@@ -38,20 +38,20 @@ plt.ylabel('Index Level')
 plt.tight_layout()
 plt.show()
 
-# (b) Daily log return distributions
-rets = np.log(data / data.shift(1)).dropna()
+# (b) Daily simple return distributions
+rets = data.pct_change().dropna()
 rets.hist(bins=40, figsize=(8,5))
-plt.suptitle('Daily Log Return Distributions')
+plt.suptitle('Daily Simple Return Distributions')
 plt.tight_layout()
 plt.show()
 
-# 6) Annualized statistics
+# 6) Annualized statistics (simple returns, population moments)
 annual_ret  = (rets.mean() * 252).reindex(data.columns)
-annual_std  = (rets.std()  * math.sqrt(252)).reindex(data.columns)
-annual_cov  = (rets.cov()  * 252).reindex(index=data.columns, columns=data.columns)
+annual_std  = (rets.std(ddof=0) * math.sqrt(252)).reindex(data.columns)
+annual_cov  = (rets.cov(ddof=0) * 252).reindex(index=data.columns, columns=data.columns)
 annual_corr =  rets.corr().reindex(index=data.columns, columns=data.columns)
 
-# 7) Sharpe Ratios
+# 7) Sharpe Ratios (arithmetic definition)
 sharpe_ratio = (annual_ret - risk_free_rate) / annual_std
 
 # 8) Summary table
