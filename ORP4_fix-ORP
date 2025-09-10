@@ -1,0 +1,256 @@
+#########################################################
+### Step 0                                             ##   
+### Select your assets, data range and risk-free rate  ##
+#########################################################
+
+# 1) Installs (in their own cell; no comments on the same line)
+# !pip install pandas-datareader
+# !pip install scipy
+# !pip install --upgrade yfinance
+
+# 2) Imports
+import pandas as pd
+import numpy as np
+import math
+import matplotlib.pyplot as plt
+import yfinance as yf
+import scipy.optimize as sco
+import scipy.interpolate as sci
+
+# 3) Params
+symbols = ['GLD', 'SPY', 'MSFT', 'AAPL']  # ['SPY', 'TLT', 'IEF', 'GLD'] or ['SPY', 'EWU', 'EWQ', 'EWG'] or ['GLD', 'SPY', 'MSFT', 'AAPL']
+start_date = '2000-01-01'
+end_date   = '2025-08-31'
+risk_free_rate = 0.02
+
+# 4) Download prices
+data = yf.download(symbols, start=start_date, end=end_date, auto_adjust=False)['Adj Close']
+
+# --- FIX: force column order to match `symbols` ---
+data = data.loc[:, [s for s in symbols if s in data.columns]]
+
+# 5) Returns
+rets = np.log(data / data.shift(1)).dropna()
+
+# 6) Annualized stats (reindex to keep consistent order)
+annual_ret = (rets.mean() * 252).reindex(data.columns)
+annual_std = (rets.std()  * math.sqrt(252)).reindex(data.columns)
+annual_cov = (rets.cov()  * 252).reindex(index=data.columns, columns=data.columns)
+annual_corr = rets.corr().reindex(index=data.columns, columns=data.columns)
+
+# Summary table
+summary_table = pd.DataFrame({
+    'R': annual_ret.round(4),
+    'SD': annual_std.round(4)
+})
+
+print("\n=== Annualized Returns and Standard Deviations ===")
+print(summary_table)
+print("\n=== Annualized Covariance Matrix ===")
+print(annual_cov.round(4))
+print("\n=== Correlation Matrix ===")
+print(annual_corr.round(4))
+
+#########################################################
+### Step 1-1  Investment Opportunity Set               ##
+#########################################################
+
+def port_ret(weights):
+    return weights.T @ annual_ret
+
+def port_vol(weights):
+    return (weights.T @ annual_cov @ weights) ** 0.5
+
+noa = len(data.columns)
+
+# Monte Carlo
+prets, pvols = [], []
+for _ in range(2500):
+    w = np.random.random(noa)
+    w /= w.sum()
+    prets.append(port_ret(w))
+    pvols.append(port_vol(w))
+prets = np.array(prets)
+pvols = np.array(pvols)
+
+# Individual assets
+asset_ret = annual_ret.values
+asset_vol = annual_std.values
+
+# Plot
+plt.figure(figsize=(8, 5))
+plt.scatter(pvols, prets, c=(prets - risk_free_rate) / pvols,
+            marker='o', cmap='coolwarm', alpha=0.85)
+plt.scatter(asset_vol, asset_ret, s=70, facecolors='yellow', edgecolors='black', zorder=4)
+
+for x, y, name in zip(asset_vol, asset_ret, annual_ret.index):
+    plt.annotate(name, (x, y), textcoords="offset points", xytext=(6, 6),
+                 ha='left', fontsize=9, zorder=5)
+
+plt.grid(True, alpha=0.3)
+plt.xlabel('expected volatility')
+plt.ylabel('expected return')
+plt.title('Investment Opportunity Set')
+plt.show()
+
+#########################################################
+### Step 1-2  Efficient Frontier                       ##
+#########################################################
+
+# MVP
+bnds = tuple((0, 1) for _ in range(noa))
+cons = ({'type': 'eq', 'fun': lambda x: np.sum(x) - 1})
+eweights = np.array(noa * [1. / noa,])
+optv = sco.minimize(port_vol, eweights, method='SLSQP',
+                    bounds=bnds, constraints=cons)
+
+min_return = port_ret(optv['x'])
+max_return = np.max(annual_ret)
+
+trets = np.linspace(min_return, max_return, 50)
+tvols = []
+for tret in trets:
+    cons = ({'type': 'eq', 'fun': lambda x: port_ret(x) - tret},
+            {'type': 'eq', 'fun': lambda x: np.sum(x) - 1})
+    res = sco.minimize(port_vol, eweights, method='SLSQP',
+                       bounds=bnds, constraints=cons)
+    tvols.append(res['fun'])
+tvols = np.array(tvols)
+
+# MVP stats
+mvp_w   = optv.x
+mvp_vol = float(port_vol(mvp_w))
+mvp_ret = float(port_ret(mvp_w))
+mvp_sr  = float((mvp_ret - risk_free_rate) / mvp_vol)
+
+weights_s = pd.Series(mvp_w, index=data.columns)
+weights_s[weights_s.abs() < 1e-6] = 0.0
+weights_df = pd.DataFrame({"Weight (%)": (weights_s * 100).round(2)}).sort_values("Weight (%)", ascending=False)
+
+# Plot with text
+fig = plt.figure(figsize=(7, 8), constrained_layout=True)
+gs  = fig.add_gridspec(nrows=2, ncols=1, height_ratios=[6, 1], hspace=0.03)
+
+ax = fig.add_subplot(gs[0])
+ax_txt = fig.add_subplot(gs[1])
+ax_txt.axis('off')
+
+ax.scatter(pvols, prets, c=(prets - risk_free_rate) / pvols,
+           marker='o', alpha=0.85, cmap='coolwarm', label='Random Portfolios')
+ax.plot(tvols, trets, 'b', lw=4.0, label='Efficient Frontier')
+ax.plot(mvp_vol, mvp_ret, 'ks', markersize=8.0, label="MVP")
+
+ax.scatter(annual_std, annual_ret, s=70, facecolors='yellow',
+           edgecolors='black', zorder=4, label='Assets')
+for x, y, name in zip(annual_std.values, annual_ret.values, annual_ret.index):
+    ax.annotate(name, (x, y), textcoords="offset points", xytext=(6, 6), ha='left', fontsize=9, zorder=5)
+
+ax.grid(True, alpha=0.3)
+ax.set_xlabel('expected volatility')
+ax.set_ylabel('expected return')
+ax.set_title("Efficient Frontier")
+ax.legend(loc='best')
+
+result_text = (
+    "================ Minimum-Variance Portfolio (Long-only) ================\n\n"
+    "Assets & Weights (%):\n"
+    f"{weights_df.to_string()}\n\n"
+    "Summary Stats:\n"
+    f"- Volatility (σ):  {mvp_vol:.3f}\n"
+    f"- Return (μ):      {mvp_ret:.3f}\n"
+    f"- Sharpe Ratio:    {mvp_sr:.3f}\n"
+    "=======================================================================\n"
+)
+ax_txt.text(0.5, 1.0, result_text, ha='center', va='top',
+            fontsize=9, family='monospace', transform=ax_txt.transAxes)
+
+plt.show()
+
+
+#########################################################
+### Step 2                                             ##
+### Optimal Risk Portfolio and Capital Market Line     ##
+#########################################################
+
+import scipy.optimize as sco
+
+# ---------- ORP (Max Sharpe) ----------
+def min_func_sharpe(weights):
+    return -(port_ret(weights) - risk_free_rate) / port_vol(weights)
+
+noa = len(annual_ret)
+bnds = tuple((0, 1) for _ in range(noa))
+cons = ({'type': 'eq', 'fun': lambda x: np.sum(x) - 1})
+eweights = np.array(noa * [1.0 / noa,])
+
+opts = sco.minimize(min_func_sharpe, eweights, method='SLSQP',
+                    bounds=bnds, constraints=cons)
+
+# ORP metrics
+orp_w   = opts.x
+orp_vol = float(port_vol(orp_w))
+orp_ret = float(port_ret(orp_w))
+orp_sr  = float((orp_ret - risk_free_rate) / orp_vol)
+
+# ORP weights (show % only)
+orp_weights_s = pd.Series(orp_w, index=annual_ret.index)
+orp_weights_s[orp_weights_s.abs() < 1e-6] = 0.0
+orp_weights_df = pd.DataFrame(
+    {"Weight (%)": (orp_weights_s * 100).round(2)}
+).sort_values("Weight (%)", ascending=False)
+
+# ---------- Capital Market Line (no fsolve needed) ----------
+# CML: y = rf + (Sharpe_orp) * x
+cml_x = np.linspace(0.0, float(max(pvols.max(), orp_vol)) * 1.05, 200)
+cml_y = risk_free_rate + orp_sr * cml_x
+
+# ---------- Plot: ORP & CML ----------
+fig = plt.figure(figsize=(7, 8), constrained_layout=True)
+gs  = fig.add_gridspec(nrows=2, ncols=1, height_ratios=[6, 1], hspace=0.03)
+
+ax = fig.add_subplot(gs[0])        # Top: graph
+ax_txt = fig.add_subplot(gs[1])    # Bottom: text
+ax_txt.axis('off')
+
+# random portfolios + efficient frontier you computed earlier (tvols/trets)
+sc = ax.scatter(pvols, prets, c=(prets - risk_free_rate) / pvols,
+                marker='.', cmap='coolwarm', alpha=0.85, label='Random Portfolios')
+ax.plot(tvols, trets, 'b', lw=4.0, label='Efficient Frontier')
+
+# CML (guaranteed to pass through ORP)
+ax.plot(cml_x, cml_y, 'r', lw=1.8, label='Capital Market Line')
+
+# ORP (Yellow Star with Black Outline)
+ax.scatter(orp_vol, orp_ret, s=250, marker='*',
+           facecolors='yellow', edgecolors='black',
+           linewidths=1.2, zorder=5, label='ORP (Max Sharpe)')
+
+# Individual assets (yellow dots + labels)
+ax.scatter(annual_std, annual_ret, s=70, facecolors='yellow', edgecolors='black', zorder=4, label='Assets')
+for x, y, name in zip(annual_std.values, annual_ret.values, annual_ret.index):
+    ax.annotate(name, (x, y), textcoords="offset points", xytext=(6, 6),
+                ha='left', fontsize=9, zorder=5)
+
+ax.grid(True, alpha=0.3)
+ax.axhline(0, color='k', ls='--', lw=1.2)
+ax.axvline(0, color='k', ls='--', lw=1.2)
+ax.set_xlabel('expected volatility')
+ax.set_ylabel('expected return')
+ax.set_title("Optimal Risky Portfolio & CML")
+ax.legend(loc='best')
+
+# Text right below the chart
+result_text = (
+    "================ Optimal Risk Portfolio (Max Sharpe, Long-only) ================\n\n"
+    "Assets & Weights (%):\n"
+    f"{orp_weights_df.to_string()}\n\n"
+    "Summary Stats:\n"
+    f"- Volatility (σ):  {orp_vol:.3f}\n"
+    f"- Return (μ):      {orp_ret:.3f}\n"
+    f"- Sharpe Ratio:    {orp_sr:.3f}   (rf = {risk_free_rate:.2%})\n"
+    "===============================================================================\n"
+)
+ax_txt.text(0.5, 1.0, result_text, ha='center', va='top',
+            fontsize=9, family='monospace', transform=ax_txt.transAxes)
+
+plt.show()
