@@ -584,7 +584,7 @@ for r in results:
         "CAGR": pct(s["CAGR"]),
         "Ann. Return": pct(s["AnnReturn"]),
         "Ann. Vol": pct(s["AnnVol"]),
-        "Sharpe (rf={:.2%})".format(risk_free_rate): f"{s['Sharpe']:.3f}" if np.isfinite(s["Sharpe"]) else "NA",
+        "Sharpe".format(risk_free_rate): f"{s['Sharpe']:.3f}" if np.isfinite(s["Sharpe"]) else "NA",
         "Max Drawdown": pct(s["MaxDD"])
     })
 comparison = pd.DataFrame(rows).set_index("Portfolio")
