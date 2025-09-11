@@ -19,8 +19,8 @@ import scipy.optimize as sco
 # 3) Parameters
 symbols = ['SPY', 'FXI', 'EWQ', 'EWG']  
 # 4 Equity Market Index => ['SPY', 'FXI', 'EWQ', 'EWG']
-# Stock Pick Genisu     => ['GLD','SPY','MSFT','AAPL']
 # All Wether Portfolio  => ['SPY','TLT','IEF','GLD']
+# Stock Pick Genius     => ['GLD','SPY','MSFT','AAPL']
 start_date = '2005-01-01'
 end_date   = '2025-08-31'
 risk_free_rate = 0.02   # assumed annual risk-free rate
