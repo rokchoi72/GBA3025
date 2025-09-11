@@ -414,3 +414,187 @@ plt.show()
 # port_log_daily = log_rets[valid_cols].dot(w_series.values)
 # equity_log = np.exp(port_log_daily.cumsum()) * 100.0
 # ------------------------------------------------------------------
+
+
+#########################################################
+### Step 4  Compare ORP Across Three Portfolios       ###
+###        (Equity Curves + Drawdowns + Stats)        ###
+#########################################################
+
+# Assumes you already defined: risk_free_rate, start_date, end_date
+# and imported: pandas as pd, numpy as np, math, yfinance as yf, matplotlib.pyplot as plt, scipy.optimize as sco
+
+# ---------- Helpers ----------
+def load_prices(symbols, start_date, end_date):
+    """Download Adj Close prices and return a clean DataFrame."""
+    px = yf.download(symbols, start=start_date, end=end_date, auto_adjust=False)['Adj Close']
+    if isinstance(px, pd.Series):
+        px = px.to_frame()
+    cols_in = [s for s in symbols if s in px.columns]
+    px = px.loc[:, cols_in].dropna(how='all').dropna()
+    return px
+
+def annualize_from_simple(rets, ddof_std=0):
+    """Annualized mean/vol/cov/corr from daily simple returns."""
+    ann_ret  = rets.mean() * 252
+    ann_std  = rets.std(ddof=ddof_std) * math.sqrt(252)
+    ann_cov  = rets.cov(ddof=ddof_std) * 252
+    ann_corr = rets.corr()
+    return ann_ret, ann_std, ann_cov, ann_corr
+
+def orp_weights_from_annual(ann_ret, ann_cov, rf):
+    """Compute long-only ORP (Max Sharpe) weights using SLSQP."""
+    def port_ret(w): return float(w @ ann_ret.values)
+    def port_vol(w): return float((w @ ann_cov.values @ w) ** 0.5)
+    def neg_sharpe(w):
+        vol = port_vol(w)
+        return -((port_ret(w) - rf) / vol) if vol > 0 else 1e9
+
+    n = len(ann_ret)
+    bnds = tuple((0, 1) for _ in range(n))
+    cons = ({'type': 'eq', 'fun': lambda x: np.sum(x) - 1},)
+    w0 = np.array([1.0/n]*n)
+    res = sco.minimize(neg_sharpe, w0, method='SLSQP', bounds=bnds, constraints=cons)
+    w = res.x
+    w[np.abs(w) < 1e-12] = 0.0
+    if not np.isclose(w.sum(), 1.0):
+        w = w / w.sum()
+    return pd.Series(w, index=ann_ret.index)
+
+def backtest_from_weights(prices, weights_s, rf):
+    """Backtest daily simple returns → equity, drawdown, and stats dict."""
+    weights_s = weights_s.reindex(prices.columns).fillna(0.0)
+    if not np.isclose(weights_s.sum(), 1.0):
+        weights_s = weights_s / weights_s.sum()
+    w = weights_s.values
+
+    # Daily portfolio simple returns
+    rets = prices.pct_change().dropna()
+    port = rets.dot(w)
+
+    # Equity curve (index=100)
+    eq = (1.0 + port).cumprod() * 100.0
+
+    # Drawdown series
+    running_max = eq.cummax()
+    dd = eq / running_max - 1.0
+    trough_date = dd.idxmin()
+    max_dd = float(dd.loc[trough_date])
+    peak_date = eq.loc[:trough_date].idxmax()
+    post = eq.loc[trough_date:]
+    rec_mask = post.ge(eq.loc[peak_date])
+    recovery_date = rec_mask.index[rec_mask.argmax()] if rec_mask.any() and post.iloc[rec_mask.argmax()] >= eq.loc[peak_date] else pd.NaT
+
+    # Annualized metrics from daily arithmetic
+    trading_days = 252
+    ann_ret = port.mean() * trading_days
+    ann_vol = port.std(ddof=0) * math.sqrt(trading_days)
+    sharpe = (ann_ret - rf) / ann_vol if ann_vol > 0 else np.nan
+
+    # CAGR (geometric)
+    years = max((eq.index[-1] - eq.index[0]).days / 365.25, 1e-9)
+    cagr = (eq.iloc[-1] / eq.iloc[0])**(1/years) - 1
+
+    stats = {
+        "CAGR": cagr,
+        "AnnReturn": ann_ret,
+        "AnnVol": ann_vol,
+        "Sharpe": sharpe,
+        "MaxDD": max_dd,
+        "PeakDate": peak_date,
+        "TroughDate": trough_date,
+        "RecoveryDate": recovery_date
+    }
+    return eq, dd, stats
+
+def build_orp_and_backtest(name, symbols, start_date, end_date, rf):
+    """Full pipeline for one portfolio set."""
+    px   = load_prices(symbols, start_date, end_date)
+    rets = px.pct_change().dropna()
+    ann_ret, ann_std, ann_cov, _ = annualize_from_simple(rets, ddof_std=0)
+    w_orp = orp_weights_from_annual(ann_ret, ann_cov, rf)
+    eq, dd, stats = backtest_from_weights(px, w_orp, rf)
+    return {
+        "name": name,
+        "symbols": symbols,
+        "prices": px,
+        "weights": w_orp,
+        "equity": eq,
+        "drawdown": dd,
+        "stats": stats
+    }
+
+# ---------- Define the three portfolios ----------
+sets = [
+    ("Equity Index (SPY/FXI/EWQ/EWG)", ['SPY', 'FXI', 'EWQ', 'EWG']),
+    ("All Weather (SPY/TLT/IEF/GLD)", ['SPY','TLT','IEF','GLD'])
+]
+# ("Stock Pick Genius (GLD/SPY/MSFT/AAPL)", ['GLD','SPY','MSFT','AAPL']),
+
+# ---------- Build each ORP & backtest ----------
+results = []
+for name, syms in sets:
+    try:
+        res = build_orp_and_backtest(name, syms, start_date, end_date, risk_free_rate)
+        results.append(res)
+    except Exception as e:
+        print(f"[WARN] Skipped {name} due to error: {e}")
+
+assert len(results) >= 1, "No portfolios were successfully built. Check tickers/date range/network."
+
+# ---------- Align equity & drawdown on a common date range ----------
+common_index = results[0]["equity"].index
+for r in results[1:]:
+    common_index = common_index.intersection(r["equity"].index)
+
+equity_df = pd.DataFrame({ r["name"]: r["equity"].reindex(common_index) for r in results }).dropna()
+dd_df     = pd.DataFrame({ r["name"]: r["drawdown"].reindex(common_index) for r in results }).dropna()
+
+# ---------- Plot combined equity curves (LOG) + Drawdowns ----------
+fig, (ax1, ax2) = plt.subplots(nrows=2, ncols=1, figsize=(9, 7),
+                               sharex=True, gridspec_kw={'height_ratios':[3,1]})
+
+# Equity: log scale with legend
+equity_df.plot(ax=ax1, lw=1.8)
+ax1.set_yscale('log')
+ax1.set_title("ORP Equity Curves (Index = 100 at Common Start) — Log Scale")
+ax1.set_ylabel("Index Level (log scale)")
+ax1.grid(True, which='both', axis='both', alpha=0.3)
+ax1.legend(loc='upper left')
+
+# Drawdowns: one line per portfolio (no labels/legend)
+dd_df.plot(ax=ax2, lw=1.2, legend=False)
+ax2.set_ylabel("Drawdown")
+ax2.set_xlabel("Date")
+ax2.grid(True, alpha=0.3)
+ax2.set_ylim(min(dd_df.min().min() * 1.05, -0.01), 0.02)
+
+plt.tight_layout()
+plt.show()
+
+# ---------- Comparison table (CAGR, AnnReturn, AnnVol, Sharpe, MaxDD) ----------
+def pct(x): 
+    return f"{x:.2%}" if np.isfinite(x) else "NA"
+
+rows = []
+for r in results:
+    s = r["stats"]
+    rows.append({
+        "Portfolio": r["name"],
+        "CAGR": pct(s["CAGR"]),
+        "Ann. Return": pct(s["AnnReturn"]),
+        "Ann. Vol": pct(s["AnnVol"]),
+        "Sharpe (rf={:.2%})".format(risk_free_rate): f"{s['Sharpe']:.3f}" if np.isfinite(s["Sharpe"]) else "NA",
+        "Max Drawdown": pct(s["MaxDD"])
+    })
+comparison = pd.DataFrame(rows).set_index("Portfolio")
+print("\n==================== ORP Performance Comparison ====================")
+print(comparison)
+print("====================================================================\n")
+
+# ---------- Show ORP weights for each portfolio ----------
+for r in results:
+    w = (r["weights"] * 100).round(2).sort_values(ascending=False)
+    print(f"--- ORP Weights (%): {r['name']} ---")
+    print(w.to_string())
+    print()
