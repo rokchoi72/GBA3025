@@ -23,7 +23,7 @@ symbols = ['SPY', 'FXI', 'EWQ', 'EWG']
 # Stock Pick Genius     => ['GLD','SPY','MSFT','AAPL']
 start_date = '2005-01-01'
 end_date   = '2025-08-31'
-risk_free_rate = 0.02   # assumed annual risk-free rate
+risk_free_rate = 0.03   # assumed annual risk-free rate
 
 # 4) Download adjusted close prices
 data = yf.download(symbols, start=start_date, end=end_date, auto_adjust=False)['Adj Close']
