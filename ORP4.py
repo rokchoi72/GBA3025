@@ -279,7 +279,7 @@ ax_txt.text(0.5, 1.0, result_text, ha='center', va='top',
 plt.show()
 
 #########################################################
-### Step 3  Backtest ORP weights & Performance Stats  ###
+### Step 3  Performance Evaluation                    ###
 ###        (equity curve, drawdown, CAGR, Sharpe)     ###
 #########################################################
 
@@ -417,7 +417,7 @@ plt.show()
 
 
 #########################################################
-### Step 4  Compare ORP Across Three Portfolios       ###
+### Step 4  Compare Performance Across Portfolios     ###
 ###        (Equity Curves + Drawdowns + Stats)        ###
 #########################################################
 
@@ -524,7 +524,7 @@ def build_orp_and_backtest(name, symbols, start_date, end_date, rf):
         "stats": stats
     }
 
-# ---------- Define the three portfolios ----------
+# ---------- Define the multiple portfolios ----------
 sets = [
     ("Equity Index (SPY/FXI/EWQ/EWG)", ['SPY', 'FXI', 'EWQ', 'EWG']),
     ("All Weather (SPY/TLT/IEF/GLD)", ['SPY','TLT','IEF','GLD'])
