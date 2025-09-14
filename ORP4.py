@@ -280,7 +280,8 @@ plt.show()
 
 #########################################################
 ### Step 3  Performance Evaluation                    ###
-###        (equity curve, drawdown, CAGR, Sharpe)     ###
+###       (equity curve, drawdown, CAGR, Sharpe)      ###
+###       In-Sample Optimized ORP - Daily Rebalance   ###
 #########################################################
 
 # --- 0) Safety checks / inputs taken from previous steps ---
@@ -414,6 +415,7 @@ plt.show()
 # port_log_daily = log_rets[valid_cols].dot(w_series.values)
 # equity_log = np.exp(port_log_daily.cumsum()) * 100.0
 # ------------------------------------------------------------------
+
 
 
 #########################################################
@@ -911,3 +913,142 @@ for r in results_user:
     print(f"--- Weights Used (%): {r['name']} ---")
     print(w[w != 0].sort_values(ascending=False).to_string())
     print()
+
+
+
+
+
+#########################################################
+### Step 3-A  Performance Evaluation                  ###
+###   Buy & Hold vs Daily Rebal vs Monthly Rebal      ###
+#########################################################
+
+# --- Safety checks ---
+assert 'data' in globals(), "Run Step 0 first (to create 'data')."
+assert 'orp_w' in globals() and orp_w is not None, "Run Step 2 first (to compute 'orp_w')."
+assert 'annual_ret' in globals(), "Run Steps 0–1 (to compute 'annual_ret')."
+
+# --- Align ORP weights to price columns ---
+w_series = pd.Series(orp_w, index=annual_ret.index).reindex(data.columns).fillna(0.0)
+w_series[w_series.abs() < 1e-12] = 0.0
+if not np.isclose(w_series.sum(), 1.0):
+    w_series = w_series / w_series.sum()
+
+print("\n=== ORP Weights Used for Backtest (% of portfolio) ===")
+print((w_series * 100).round(2).rename("Weight %"))
+
+# Use fully aligned price panel (drop rows with any missing prices to keep strategies comparable)
+prices = data.loc[:, w_series.index].dropna(how='any')
+rets   = prices.pct_change()  # simple daily returns (NaN on first row)
+
+# ------------ Utilities ------------
+def compute_drawdown(series: pd.Series):
+    running_max = series.cummax()
+    dd_series = series / running_max - 1.0
+    trough_idx = dd_series.idxmin()
+    max_dd = float(dd_series.loc[trough_idx])
+    peak_date = series.loc[:trough_idx].idxmax()
+    post = series.loc[trough_idx:]
+    rec_mask = post.ge(series.loc[peak_date])
+    recovery_date = (rec_mask.index[rec_mask.argmax()]
+                     if rec_mask.any() and post.iloc[rec_mask.argmax()] >= series.loc[peak_date]
+                     else pd.NaT)
+    return max_dd, peak_date, trough_idx, recovery_date, dd_series
+
+def perf_from_equity(equity: pd.Series, rf: float):
+    trading_days = 252
+    years = max((equity.index[-1] - equity.index[0]).days / 365.25, 1e-9)
+    ret_daily = equity.pct_change().dropna()
+    ann_ret = ret_daily.mean() * trading_days
+    ann_vol = ret_daily.std(ddof=0) * math.sqrt(trading_days)
+    cagr    = (equity.iloc[-1] / equity.iloc[0])**(1/years) - 1
+    sharpe  = (ann_ret - rf) / ann_vol if ann_vol > 0 else np.nan
+    max_dd, peak, trough, rec, dd = compute_drawdown(equity)
+    return {
+        "CAGR": cagr, "Ann_Return": ann_ret, "Ann_Vol": ann_vol,
+        "Sharpe": sharpe, "MaxDD": max_dd,
+        "Peak": peak, "Trough": trough, "Recovery": rec, "DD_Series": dd
+    }
+
+# ------------ 1) Buy & Hold (no rebalance) ------------
+init_wealth = 100.0
+shares_bh = (init_wealth * w_series) / prices.iloc[0]
+equity_bh = prices.mul(shares_bh, axis=1).sum(axis=1)
+equity_bh = equity_bh / equity_bh.iloc[0] * 100.0
+
+# ------------ 2) Daily Rebalance (constant-mix) ------------
+daily_port_r = rets.dot(w_series.values).fillna(0.0)
+equity_daily = (1.0 + daily_port_r).cumprod() * 100.0
+
+# ------------ 3) Monthly Rebalance ------------
+wealth = 100.0
+equity_month = pd.Series(index=prices.index, dtype=float)
+# first trading day of each calendar month
+rebal_dates = set(prices.groupby(prices.index.to_period('M')).apply(lambda df: df.index[0]).tolist())
+shares = None
+last_rebal = None
+for t in prices.index:
+    if (last_rebal is None) or (t in rebal_dates and t != last_rebal):
+        shares = (wealth * w_series) / prices.loc[t]
+        last_rebal = t
+    wealth = float((prices.loc[t] * shares).sum())
+    equity_month.loc[t] = wealth
+equity_month = equity_month / equity_month.iloc[0] * 100.0
+
+# ------------ Performance stats ------------
+stats_bh     = perf_from_equity(equity_bh,     risk_free_rate)
+stats_daily  = perf_from_equity(equity_daily,  risk_free_rate)
+stats_month  = perf_from_equity(equity_month,  risk_free_rate)
+
+# Print summary table
+summary = pd.DataFrame({
+    "Strategy": ["Buy & Hold", "Daily Rebalance", "Monthly Rebalance"],
+    "CAGR":     [stats_bh["CAGR"],    stats_daily["CAGR"],    stats_month["CAGR"]],
+    "Ann Ret":  [stats_bh["Ann_Return"], stats_daily["Ann_Return"], stats_month["Ann_Return"]],
+    "Ann Vol":  [stats_bh["Ann_Vol"], stats_daily["Ann_Vol"], stats_month["Ann_Vol"]],
+    "Sharpe":   [stats_bh["Sharpe"],  stats_daily["Sharpe"],  stats_month["Sharpe"]],
+    "Max DD":   [stats_bh["MaxDD"],   stats_daily["MaxDD"],   stats_month["MaxDD"]],
+})
+print("\n=== Performance Summary ({} → {}) ===".format(prices.index[0].date(), prices.index[-1].date()))
+print(summary.set_index("Strategy").applymap(lambda x: f"{x:.2%}" if isinstance(x, (float, np.floating)) else x))
+
+# ------------ Figure 1: Equity curves (three lines) ------------
+plt.figure(figsize=(10,6))
+plt.plot(equity_bh.index,    equity_bh.values,    label="Buy & Hold (No Rebalance)", lw=1.8)
+plt.plot(equity_daily.index, equity_daily.values, label="Daily Rebalance", lw=1.8)
+plt.plot(equity_month.index, equity_month.values, label="Monthly Rebalance", lw=1.8)
+plt.title("ORP Portfolio — Equity Curves (All Start at 100)")
+plt.ylabel("Index Level (start=100)")
+plt.grid(True, alpha=0.3)
+plt.legend()
+plt.tight_layout()
+plt.show()
+
+# ------------ Figure 2: Drawdowns (one chart, 3 lines) ------------
+dd_bh    = stats_bh["DD_Series"]
+dd_daily = stats_daily["DD_Series"]
+dd_month = stats_month["DD_Series"]
+
+fig, ax = plt.subplots(figsize=(10,5))
+ax.plot(dd_bh.index,    dd_bh.values,    lw=1.6, label=f"Buy & Hold (Max DD {stats_bh['MaxDD']:.1%})")
+ax.plot(dd_daily.index, dd_daily.values, lw=1.6, label=f"Daily Rebalance (Max DD {stats_daily['MaxDD']:.1%})")
+ax.plot(dd_month.index, dd_month.values, lw=1.6, label=f"Monthly Rebalance (Max DD {stats_month['MaxDD']:.1%})")
+
+# mark trough points for each strategy
+for dd_series, stats in [(dd_bh, stats_bh), (dd_daily, stats_daily), (dd_month, stats_month)]:
+    t = stats["Trough"]
+    ax.scatter(t, dd_series.loc[t], s=70, edgecolor="black", facecolor="yellow", zorder=5)
+
+ax.axhline(0, color='k', lw=1.0, ls='--')
+ax.set_title("Drawdowns — All Strategies")
+ax.set_ylabel("Drawdown")
+ax.set_xlabel("Date")
+ax.grid(True, alpha=0.3)
+
+# unified y-limits
+ymin = min(dd_bh.min(), dd_daily.min(), dd_month.min()) * 1.05
+ax.set_ylim(min(ymin, -0.01), 0.02)
+
+ax.legend()
+plt.tight_layout()
+plt.show()
