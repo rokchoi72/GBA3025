@@ -17,7 +17,7 @@ import yfinance as yf
 import scipy.optimize as sco
 
 # 3) Parameters
-symbols = ['SPY', 'FXI', 'EWQ', 'EWG']  
+symbols = ['SPY','TLT','IEF','GLD']  
 # 4 Equity Market Index => ['SPY', 'FXI', 'EWQ', 'EWG']
 # All Wether Portfolio  => ['SPY','TLT','IEF','GLD']
 # Stock Pick Genius     => ['GLD','SPY','MSFT','AAPL']
@@ -417,7 +417,8 @@ plt.show()
 
 
 #########################################################
-### Step 4  Compare Performance Across Portfolios     ###
+### Step 4  Compare Performance Across ORPs           ###
+###        (Composed of different assets)             ###
 ###        (Equity Curves + Drawdowns + Stats)        ###
 #########################################################
 
@@ -597,4 +598,316 @@ for r in results:
     w = (r["weights"] * 100).round(2).sort_values(ascending=False)
     print(f"--- ORP Weights (%): {r['name']} ---")
     print(w.to_string())
+    print()
+
+
+#########################################################
+### Step 5  User-Defined Portfolios (Fixed Weights)   ###
+###         Monthly Rebalancing + Comparison          ###
+#########################################################
+
+# -- Monthly-rebalanced backtest for FIXED weights --
+def backtest_from_weights_monthly(prices, weights_s, rf):
+    """
+    Fixed weights re-applied at the start of each calendar month.
+    Returns daily equity & drawdown series and stats.
+    """
+    weights_s = weights_s.reindex(prices.columns).fillna(0.0)
+    if not np.isclose(weights_s.sum(), 1.0):
+        weights_s = weights_s / weights_s.sum()
+    w = weights_s.values
+
+    rets = prices.pct_change().dropna()
+
+    # Same weights within each month
+    port_daily_parts = []
+    for _, g in rets.groupby(rets.index.to_period('M')):
+        port_daily_parts.append(g.dot(w))
+    port = pd.concat(port_daily_parts).sort_index()
+
+    # Equity curve (index=100)
+    eq = (1.0 + port).cumprod() * 100.0
+
+    # Drawdowns
+    running_max = eq.cummax()
+    dd = eq / running_max - 1.0
+    trough_date = dd.idxmin()
+    max_dd = float(dd.loc[trough_date])
+    peak_date = eq.loc[:trough_date].idxmax()
+    post = eq.loc[trough_date:]
+    rec_mask = post.ge(eq.loc[peak_date])
+    recovery_date = rec_mask.index[rec_mask.argmax()] if rec_mask.any() and post.iloc[rec_mask.argmax()] >= eq.loc[peak_date] else pd.NaT
+
+    # Daily-based annualization
+    trading_days = 252
+    ann_ret = port.mean() * trading_days
+    ann_vol = port.std(ddof=0) * math.sqrt(trading_days)
+    sharpe = (ann_ret - rf) / ann_vol if ann_vol > 0 else np.nan
+
+    years = max((eq.index[-1] - eq.index[0]).days / 365.25, 1e-9)
+    cagr = (eq.iloc[-1] / eq.iloc[0])**(1/years) - 1
+
+    stats = {
+        "CAGR": cagr,
+        "AnnReturn": ann_ret,
+        "AnnVol": ann_vol,
+        "Sharpe": sharpe,
+        "MaxDD": max_dd,
+        "PeakDate": peak_date,
+        "TroughDate": trough_date,
+        "RecoveryDate": recovery_date
+    }
+    return eq, dd, stats
+
+
+# -- 36-month rolling ORP, out-of-sample (monthly rebal) --
+def rolling_orp_backtest_monthly(prices, rf, window_months=36):
+    """
+    Out-of-sample ORP:
+      - For each month t, optimize ORP using prior `window_months` of DAILY returns.
+      - Hold those weights within month t (monthly rebalancing).
+      - Returns daily equity/drawdown and stats.
+    """
+    rets = prices.pct_change().dropna()
+    month_labels = rets.index.to_period('M')
+    unique_months = month_labels.unique().sort_values()
+
+    port_series_list = []
+    for i in range(window_months, len(unique_months)):
+        train_months = unique_months[i - window_months : i]
+        this_month   = unique_months[i]
+
+        train_rets = rets[month_labels.isin(train_months)]
+        if train_rets.shape[0] < 60:
+            continue
+
+        ann_ret, ann_std, ann_cov, _ = annualize_from_simple(train_rets, ddof_std=0)
+        w_orp = orp_weights_from_annual(ann_ret, ann_cov, rf).reindex(prices.columns).fillna(0.0)
+        if not np.isclose(w_orp.sum(), 1.0):
+            w_orp = w_orp / max(w_orp.sum(), 1e-12)
+
+        month_rets = rets[month_labels == this_month]
+        if month_rets.empty:
+            continue
+        port_series_list.append(month_rets.dot(w_orp.values))
+
+    if not port_series_list:
+        raise ValueError("Not enough data for rolling ORP. Extend date range or reduce window.")
+
+    port = pd.concat(port_series_list).sort_index()
+
+    # Equity / Drawdown / Stats
+    eq = (1.0 + port).cumprod() * 100.0
+    running_max = eq.cummax()
+    dd = eq / running_max - 1.0
+    trough_date = dd.idxmin()
+    max_dd = float(dd.loc[trough_date])
+    peak_date = eq.loc[:trough_date].idxmax()
+    post = eq.loc[trough_date:]
+    rec_mask = post.ge(eq.loc[peak_date])
+    recovery_date = rec_mask.index[rec_mask.argmax()] if rec_mask.any() and post.iloc[rec_mask.argmax()] >= eq.loc[peak_date] else pd.NaT
+
+    trading_days = 252
+    ann_return = port.mean() * trading_days
+    ann_vol    = port.std(ddof=0) * math.sqrt(trading_days)
+    sharpe     = (ann_return - rf) / ann_vol if ann_vol > 0 else np.nan
+
+    years = max((eq.index[-1] - eq.index[0]).days / 365.25, 1e-9)
+    cagr  = (eq.iloc[-1] / eq.iloc[0])**(1/years) - 1
+
+    stats = {
+        "CAGR": cagr,
+        "AnnReturn": ann_return,
+        "AnnVol": ann_vol,
+        "Sharpe": sharpe,
+        "MaxDD": max_dd,
+        "PeakDate": peak_date,
+        "TroughDate": trough_date,
+        "RecoveryDate": recovery_date
+    }
+    return eq, dd, stats
+
+
+# -- Define your user portfolios & weights (edit here) --
+user_weight_sets = [
+    ("All Weather (User Weights)", {
+        "SPY": 0.30, "TLT": 0.40, "IEF": 0.15, "GLD": 0.15
+    }),
+    # ("My Custom Mix", {"SPY":0.5, "GLD":0.2, "TLT":0.3})
+]
+
+# Also include an ORP benchmark on the same universe, monthly rebalanced
+include_orp_benchmarks = True   # set False if you only want your fixed mixes
+
+
+# -- Helpers specific to Step 5 --
+def normalize_and_filter_weights(weights_dict, available_cols):
+    """
+    Keep only tickers present in available_cols; drop zeros/NaNs; normalize to 1.
+    Returns a pd.Series aligned to available_cols (missing tickers = 0).
+    """
+    w = pd.Series(weights_dict, dtype=float)
+    w = w[w.index.isin(available_cols)].replace([np.inf, -np.inf], np.nan).dropna()
+    w = w[w != 0]
+    s = pd.Series(0.0, index=available_cols, dtype=float)
+    if len(w) == 0:
+        return s
+    w = w / w.sum()
+    s.loc[w.index] = w.values
+    return s
+
+
+def build_fixed_and_optional_orp_monthly(name, weights_dict, start_date, end_date, rf):
+    """
+    Downloads universe, backtests FIXED weights with MONTHLY rebalancing.
+    Optionally also builds the MONTHLY-rebalanced ORP benchmark on same universe.
+    """
+    tickers = sorted(list(weights_dict.keys()))
+    px = load_prices(tickers, start_date, end_date)
+    if px.shape[1] == 0:
+        raise ValueError("No valid price columns found for provided weights.")
+
+    # Fixed weights aligned to px
+    w_fixed = normalize_and_filter_weights(weights_dict, px.columns)
+    if np.isclose(w_fixed.sum(), 0.0):
+        raise ValueError("After filtering, provided weights are all zero or invalid.")
+
+    # Backtest FIXED (monthly rebal)
+    eq_fixed, dd_fixed, stats_fixed = backtest_from_weights_monthly(px, w_fixed, rf)
+
+    results_list = [{
+        "name": name,
+        "type": "Fixed (Monthly Rebal)",
+        "prices": px,
+        "weights": w_fixed,
+        "equity": eq_fixed,
+        "drawdown": dd_fixed,
+        "stats": stats_fixed
+    }]
+
+    if include_orp_benchmarks:
+        # In-sample ORP on same universe
+        rets = px.pct_change().dropna()
+        ann_ret, ann_std, ann_cov, _ = annualize_from_simple(rets, ddof_std=0)
+        w_orp = orp_weights_from_annual(ann_ret, ann_cov, rf)
+        eq_orp, dd_orp, stats_orp = backtest_from_weights_monthly(px, w_orp, rf)
+
+        # Label fix: "All Weather (ORP Benchmark)"
+        orp_name = name.replace("(User Weights)", "(ORP Benchmark)")
+
+        results_list.append({
+            "name": orp_name,
+            "type": "ORP (Monthly Rebal)",
+            "prices": px,
+            "weights": w_orp,
+            "equity": eq_orp,
+            "drawdown": dd_orp,
+            "stats": stats_orp
+        })
+    return results_list
+
+
+# -- Build all requested user portfolios (monthly) --
+results_user = []
+for name, wdict in user_weight_sets:
+    try:
+        bundles = build_fixed_and_optional_orp_monthly(name, wdict, start_date, end_date, risk_free_rate)
+        results_user.extend(bundles)
+    except Exception as e:
+        print(f"[WARN] Skipped '{name}' due to: {e}")
+
+assert len(results_user) >= 1, "No user-defined portfolios were built. Check tickers/weights/date range."
+
+# --- Add 36m rolling ORP for the same All Weather universe ---
+aw_result = results_user[0]  # "All Weather (User Weights)"
+aw_px = aw_result["prices"]
+eq_roll, dd_roll, stats_roll = rolling_orp_backtest_monthly(aw_px, risk_free_rate, window_months=36)
+results_user.append({
+    "name": "All Weather (ORP Rolling 36m)",
+    "type": "ORP (Rolling 36m, Monthly Rebal)",
+    "prices": aw_px,
+    "weights": None,   # time-varying; omitted
+    "equity": eq_roll,
+    "drawdown": dd_roll,
+    "stats": stats_roll
+})
+
+
+# -- Align curves & plot (log equity + drawdown) --
+# Intersection ensures all series share the SAME start (so rebasing aligns at 100)
+common_index_u = results_user[0]["equity"].index
+for r in results_user[1:]:
+    common_index_u = common_index_u.intersection(r["equity"].index)
+
+equity_user_df = pd.DataFrame({ r["name"]: r["equity"].reindex(common_index_u) for r in results_user }).dropna()
+dd_user_df     = pd.DataFrame({ r["name"]: r["drawdown"].reindex(common_index_u) for r in results_user }).dropna()
+
+# Rebase every series to 100 at the common start
+equity_user_df = equity_user_df / equity_user_df.iloc[0] * 100.0
+
+fig, (ax1, ax2) = plt.subplots(nrows=2, ncols=1, figsize=(9, 7),
+                               sharex=True, gridspec_kw={'height_ratios':[3,1]})
+
+# Equity curves (log scale)
+equity_user_df.plot(ax=ax1, lw=1.8)
+ax1.set_yscale('log')
+ax1.set_title("User-Defined Portfolio(s) — Equity Curves (Index=100 @ Common Start) — Monthly Rebal")
+ax1.set_ylabel("Index Level (log)")
+ax1.grid(True, which='both', axis='both', alpha=0.3)
+ax1.legend(loc='upper left')
+
+# Drawdowns (no legend)
+dd_user_df.plot(ax=ax2, lw=1.2, legend=False)
+ax2.set_ylabel("Drawdown")
+ax2.set_xlabel("Date")
+ax2.grid(True, alpha=0.3)
+ax2.set_ylim(min(dd_user_df.min().min() * 1.05, -0.01), 0.02)
+
+plt.tight_layout()
+plt.show()
+
+
+# -- Comparison table (compact, fixed-width; uses actual names) --
+def pct(x): 
+    return f"{x:.2%}" if np.isfinite(x) else "NA"
+
+# Optional helper to avoid name overflow (ellipsis)
+def fit_cell(text, width):
+    s = str(text)
+    return s if len(s) <= width else (s[:max(0, width-1)] + "…")
+
+rows = []
+for r in results_user:
+    s = r["stats"]
+    rows.append([
+        r["name"],  # actual portfolio name
+        pct(s["CAGR"]),
+        pct(s["AnnReturn"]),
+        pct(s["AnnVol"]),
+        f"{s['Sharpe']:.3f}" if np.isfinite(s["Sharpe"]) else "NA",
+        pct(s["MaxDD"]),
+        s["RecoveryDate"].date().strftime("%Y-%m-%d") if pd.notna(s["RecoveryDate"]) else "Not yet"
+    ])
+
+headers    = ["Portfolio", "CAGR", "Ann. Return", "Ann. Vol", "Sharpe", "MaxDD", "Recovery"]
+col_widths = [32,          8,       12,            10,        8,       10,       12]
+
+header_line = "".join(h.ljust(w) for h, w in zip(headers, col_widths))
+sep_line    = "-" * sum(col_widths)
+
+print("\n==================== User vs ORP (In-sample & Rolling 36m) — Monthly Rebal ====================")
+print(header_line)
+print(sep_line)
+for row in rows:
+    cells = [fit_cell(val, w).ljust(w) for val, w in zip(row, col_widths)]
+    print("".join(cells))
+print("================================================================================================\n")
+
+# -- Show actual weights used (rolling ORP has time-varying weights, so skip) --
+for r in results_user:
+    if r["weights"] is None:
+        continue
+    w = (r["weights"] * 100).round(2)
+    print(f"--- Weights Used (%): {r['name']} ---")
+    print(w[w != 0].sort_values(ascending=False).to_string())
     print()
