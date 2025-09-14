@@ -679,7 +679,6 @@ ax.legend()
 plt.tight_layout()
 plt.show()
 
-
 #########################################################
 ### Step 4  User-Defined Portfolios (Fixed Weights)   ###
 ###         Monthly Rebalancing + Comparison          ###
@@ -970,3 +969,5 @@ print("=======================================================================\n
 # - Add more user strategies in `user_weight_sets`.
 # - Labels automatically pair as: "(User Weights)" → "(ORP Benchmark)" → "(ORP Rolling 36m)".
 # - All curves are rebased to 100 at the common start; top: log-scale equity; bottom: drawdowns.
+
+
