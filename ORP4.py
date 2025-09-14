@@ -419,8 +419,7 @@ plt.show()
 
 
 #########################################################
-### Step 4  Compare Performance Across ORPs           ###
-###        (Composed of different assets)             ###
+### Step 4 Performance Across in-Sample ORPs and BM   ###
 ###        (Equity Curves + Drawdowns + Stats)        ###
 #########################################################
 
@@ -529,11 +528,11 @@ def build_orp_and_backtest(name, symbols, start_date, end_date, rf):
 
 # ---------- Define the multiple portfolios ----------
 sets = [
-    ("Equity Index (SPY/FXI/EWQ/EWG)", ['SPY', 'FXI', 'EWQ', 'EWG']),
+    ("Benchmark (SPY)", ['SPY']),
     ("All Weather (SPY/TLT/IEF/GLD)", ['SPY','TLT','IEF','GLD'])
 ]
 # ("Stock Pick Genius (GLD/SPY/MSFT/AAPL)", ['GLD','SPY','MSFT','AAPL']),
-
+# ("Equity Index (SPY/FXI/EWQ/EWG)", ['SPY', 'FXI', 'EWQ', 'EWG'])
 # ---------- Build each ORP & backtest ----------
 results = []
 for name, syms in sets:
