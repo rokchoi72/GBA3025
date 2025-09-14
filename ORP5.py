@@ -304,7 +304,7 @@ print("\n=== ORP Weights Used for Backtest (% of portfolio) ===")
 print((w_series * 100).round(2))
 
 # --- 2) Daily portfolio returns (simple returns) ---
-simple_rets = data.pct_change().dropna(how='all')
+simple_rets = data.pct_change().dropna(how='any')
 # If any column has all-NaN after pct_change (rare), drop it & renormalize weights
 valid_cols = simple_rets.columns[~simple_rets.isna().all()]
 if len(valid_cols) < len(simple_rets.columns):
