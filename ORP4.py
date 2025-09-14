@@ -278,149 +278,11 @@ ax_txt.text(0.5, 1.0, result_text, ha='center', va='top',
 
 plt.show()
 
-#########################################################
-### Step 3  Performance Evaluation                    ###
-###       (equity curve, drawdown, CAGR, Sharpe)      ###
-###       In-Sample Optimized ORP - Daily Rebalance   ###
-#########################################################
-
-# --- 0) Safety checks / inputs taken from previous steps ---
-# Requires: data (Adj Close), risk_free_rate, orp_w, annual_ret
-assert 'data' in globals(), "Run Step 0 first (to create 'data')."
-assert 'orp_w' in globals() and orp_w is not None, "Run Step 2 first (to compute 'orp_w')."
-assert 'annual_ret' in globals(), "Run Steps 0–1 (to compute 'annual_ret')."
-
-# --- 1) Align ORP weights to your price columns ---
-w_series = pd.Series(orp_w, index=annual_ret.index)           # ORP weights per ticker from Step 2
-w_series = w_series.reindex(data.columns).fillna(0.0)         # match price columns
-# Clean tiny numerical noise & renormalize just in case
-w_series[w_series.abs() < 1e-12] = 0.0
-if not np.isclose(w_series.sum(), 1.0):
-    w_series = w_series / w_series.sum()
-w_vec = w_series.values
-
-print("\n=== ORP Weights Used for Backtest (% of portfolio) ===")
-print((w_series * 100).round(2))
-
-# --- 2) Daily portfolio returns (simple returns) ---
-simple_rets = data.pct_change().dropna(how='all')
-# If any column has all-NaN after pct_change (rare), drop it & renormalize weights
-valid_cols = simple_rets.columns[~simple_rets.isna().all()]
-if len(valid_cols) < len(simple_rets.columns):
-    dropped = [c for c in simple_rets.columns if c not in valid_cols]
-    if dropped:
-        print(f"[WARN] Dropping assets with no return data after pct_change: {dropped}")
-    simple_rets = simple_rets[valid_cols]
-    w_series = w_series.reindex(valid_cols).fillna(0.0)
-    if not np.isclose(w_series.sum(), 1.0):
-        w_series = w_series / w_series.sum()
-    w_vec = w_series.values
-
-port_ret_daily = simple_rets.dot(w_vec)
-
-# --- 3) Build equity curve (index=100 at start) ---
-equity = (1.0 + port_ret_daily).cumprod() * 100.0
-equity = equity.dropna()
-
-# --- 4) Max Drawdown utility ---
-def compute_drawdown(series: pd.Series):
-    """
-    Returns:
-      max_dd: float (e.g., -0.35 for -35%)
-      peak_date: Timestamp of the peak before worst drawdown
-      trough_date: Timestamp at the drawdown trough
-      recovery_date: Timestamp when the series recovers (NaT if never)
-      dd_series: full drawdown time series
-    """
-    running_max = series.cummax()
-    dd_series = series / running_max - 1.0
-
-    trough_idx = dd_series.idxmin()
-    max_dd = float(dd_series.loc[trough_idx])
-
-    # Peak: last time series was at its running max before trough
-    peak_date = series.loc[:trough_idx].idxmax()
-
-    # Recovery: first time after trough that equity exceeds prior peak
-    post = series.loc[trough_idx:]
-    rec_mask = post.ge(series.loc[peak_date])
-    recovery_date = rec_mask.index[rec_mask.argmax()] if rec_mask.any() and post.iloc[rec_mask.argmax()] >= series.loc[peak_date] else pd.NaT
-
-    return max_dd, peak_date, trough_idx, recovery_date, dd_series
-
-max_dd, peak_date, trough_date, recovery_date, dd = compute_drawdown(equity)
-
-print("\n=== Maximum Drawdown (start → end) ===")
-print(f"Peak date:     {peak_date.date()}")
-print(f"Trough date:   {trough_date.date()}")
-print(f"Recovery date: {recovery_date.date() if pd.notna(recovery_date) else 'Not yet recovered'}")
-print(f"Max Drawdown:  {max_dd:.2%}")
-
-# --- 5) Performance metrics: CAGR, Annualized Return/Vol, Sharpe ---
-trading_days = 252
-years = (equity.index[-1] - equity.index[0]).days / 365.25
-# Guard for zero/negative years (shouldn't happen if data is valid)
-years = max(years, 1e-9)
-
-# CAGR: geometric annual growth
-cagr = (equity.iloc[-1] / equity.iloc[0])**(1/years) - 1
-
-# Arithmetic annualized metrics
-ann_ret = port_ret_daily.mean() * trading_days
-ann_vol = port_ret_daily.std(ddof=0) * math.sqrt(trading_days)  # population stdev for stability
-sharpe = (ann_ret - risk_free_rate) / ann_vol if ann_vol > 0 else np.nan
-
-print("\n=== ORP Portfolio Performance Stats ({} → {}) ===".format(
-    equity.index[0].date(), equity.index[-1].date()))
-print(f"CAGR:               {cagr:.2%}")
-print(f"Annualized Return:  {ann_ret:.2%}")
-print(f"Annualized Vol:     {ann_vol:.2%}")
-print(f"Sharpe Ratio:       {sharpe:.3f}   (rf = {risk_free_rate:.2%})")
-
-# --- 6) Plot equity curve and drawdown ---
-fig = plt.figure(figsize=(9, 6), constrained_layout=True)
-gs = fig.add_gridspec(nrows=2, ncols=1, height_ratios=[3, 1], hspace=0.05)
-
-ax1 = fig.add_subplot(gs[0])
-ax2 = fig.add_subplot(gs[1], sharex=ax1)
-
-# Equity curve
-ax1.plot(equity.index, equity.values, lw=1.6)
-ax1.set_ylabel('Index Level (start=100)')
-ax1.set_title('ORP Portfolio — Cumulative Return')
-ax1.grid(True, alpha=0.3)
-
-# Annotate peak & trough
-ax1.scatter([peak_date, trough_date],
-            [equity.loc[peak_date], equity.loc[trough_date]],
-            s=70, edgecolor='black', facecolor='yellow', zorder=5)
-ax1.annotate('Peak', xy=(peak_date, equity.loc[peak_date]),
-             xytext=(10, 10), textcoords='offset points')
-ax1.annotate('Trough', xy=(trough_date, equity.loc[trough_date]),
-             xytext=(10, -15), textcoords='offset points')
-
-# Drawdown subplot
-ax2.plot(dd.index, dd.values, lw=1.4)
-ax2.fill_between(dd.index, dd.values, 0, alpha=0.15)
-ax2.set_ylabel('Drawdown')
-ax2.set_xlabel('Date')
-ax2.grid(True, alpha=0.3)
-ax2.set_ylim(min(dd.min() * 1.05, -0.01), 0.02)  # keep 0 near top
-
-plt.show()
-
-# ------------------------------------------------------------------
-# (Optional) If you prefer log-return backtest:
-# log_rets = np.log(data / data.shift(1)).dropna()
-# port_log_daily = log_rets[valid_cols].dot(w_series.values)
-# equity_log = np.exp(port_log_daily.cumsum()) * 100.0
-# ------------------------------------------------------------------
-
 
 
 #########################################################
-### Step 4 Performance Across in-Sample ORPs and BM   ###
-###        (Equity Curves + Drawdowns + Stats)        ###
+### Step 3 Performance Evaluation                     ###
+###        across Multiple in-Sample ORPs and BM      ###
 #########################################################
 
 # Assumes you already defined: risk_free_rate, start_date, end_date
@@ -529,10 +391,12 @@ def build_orp_and_backtest(name, symbols, start_date, end_date, rf):
 # ---------- Define the multiple portfolios ----------
 sets = [
     ("Benchmark (SPY)", ['SPY']),
-    ("All Weather (SPY/TLT/IEF/GLD)", ['SPY','TLT','IEF','GLD'])
-]
+    ]
+# ("All Weather (SPY/TLT/IEF/GLD)", ['SPY','TLT','IEF','GLD'])
 # ("Stock Pick Genius (GLD/SPY/MSFT/AAPL)", ['GLD','SPY','MSFT','AAPL']),
 # ("Equity Index (SPY/FXI/EWQ/EWG)", ['SPY', 'FXI', 'EWQ', 'EWG'])
+
+
 # ---------- Build each ORP & backtest ----------
 results = []
 for name, syms in sets:
@@ -573,7 +437,7 @@ ax2.set_ylim(min(dd_df.min().min() * 1.05, -0.01), 0.02)
 
 plt.tight_layout()
 plt.show()
-
+https://github.com/rokchoi72/GBA3025/blob/main/ORP4.py
 # ---------- Comparison table (CAGR, AnnReturn, AnnVol, Sharpe, MaxDD) ----------
 def pct(x): 
     return f"{x:.2%}" if np.isfinite(x) else "NA"
@@ -915,6 +779,143 @@ for r in results_user:
 
 
 
+
+#########################################################
+### Step A Performance Evaluation of OPRs from Step 2 ###
+###     *In-Sample Optimized ORP (Daily Rebalance)*   ###
+#########################################################
+
+# --- 0) Safety checks / inputs taken from previous steps ---
+# Requires: data (Adj Close), risk_free_rate, orp_w, annual_ret
+assert 'data' in globals(), "Run Step 0 first (to create 'data')."
+assert 'orp_w' in globals() and orp_w is not None, "Run Step 2 first (to compute 'orp_w')."
+assert 'annual_ret' in globals(), "Run Steps 0–1 (to compute 'annual_ret')."
+
+# --- 1) Align ORP weights to your price columns ---
+w_series = pd.Series(orp_w, index=annual_ret.index)           # ORP weights per ticker from Step 2
+w_series = w_series.reindex(data.columns).fillna(0.0)         # match price columns
+# Clean tiny numerical noise & renormalize just in case
+w_series[w_series.abs() < 1e-12] = 0.0
+if not np.isclose(w_series.sum(), 1.0):
+    w_series = w_series / w_series.sum()
+w_vec = w_series.values
+
+print("\n=== ORP Weights Used for Backtest (% of portfolio) ===")
+print((w_series * 100).round(2))
+
+# --- 2) Daily portfolio returns (simple returns) ---
+simple_rets = data.pct_change().dropna(how='all')
+# If any column has all-NaN after pct_change (rare), drop it & renormalize weights
+valid_cols = simple_rets.columns[~simple_rets.isna().all()]
+if len(valid_cols) < len(simple_rets.columns):
+    dropped = [c for c in simple_rets.columns if c not in valid_cols]
+    if dropped:
+        print(f"[WARN] Dropping assets with no return data after pct_change: {dropped}")
+    simple_rets = simple_rets[valid_cols]
+    w_series = w_series.reindex(valid_cols).fillna(0.0)
+    if not np.isclose(w_series.sum(), 1.0):
+        w_series = w_series / w_series.sum()
+    w_vec = w_series.values
+
+port_ret_daily = simple_rets.dot(w_vec)
+
+# --- 3) Build equity curve (index=100 at start) ---
+equity = (1.0 + port_ret_daily).cumprod() * 100.0
+equity = equity.dropna()
+
+# --- 4) Max Drawdown utility ---
+def compute_drawdown(series: pd.Series):
+    """
+    Returns:
+      max_dd: float (e.g., -0.35 for -35%)
+      peak_date: Timestamp of the peak before worst drawdown
+      trough_date: Timestamp at the drawdown trough
+      recovery_date: Timestamp when the series recovers (NaT if never)
+      dd_series: full drawdown time series
+    """
+    running_max = series.cummax()
+    dd_series = series / running_max - 1.0
+
+    trough_idx = dd_series.idxmin()
+    max_dd = float(dd_series.loc[trough_idx])
+
+    # Peak: last time series was at its running max before trough
+    peak_date = series.loc[:trough_idx].idxmax()
+
+    # Recovery: first time after trough that equity exceeds prior peak
+    post = series.loc[trough_idx:]
+    rec_mask = post.ge(series.loc[peak_date])
+    recovery_date = rec_mask.index[rec_mask.argmax()] if rec_mask.any() and post.iloc[rec_mask.argmax()] >= series.loc[peak_date] else pd.NaT
+
+    return max_dd, peak_date, trough_idx, recovery_date, dd_series
+
+max_dd, peak_date, trough_date, recovery_date, dd = compute_drawdown(equity)
+
+print("\n=== Maximum Drawdown (start → end) ===")
+print(f"Peak date:     {peak_date.date()}")
+print(f"Trough date:   {trough_date.date()}")
+print(f"Recovery date: {recovery_date.date() if pd.notna(recovery_date) else 'Not yet recovered'}")
+print(f"Max Drawdown:  {max_dd:.2%}")
+
+# --- 5) Performance metrics: CAGR, Annualized Return/Vol, Sharpe ---
+trading_days = 252
+years = (equity.index[-1] - equity.index[0]).days / 365.25
+# Guard for zero/negative years (shouldn't happen if data is valid)
+years = max(years, 1e-9)
+
+# CAGR: geometric annual growth
+cagr = (equity.iloc[-1] / equity.iloc[0])**(1/years) - 1
+
+# Arithmetic annualized metrics
+ann_ret = port_ret_daily.mean() * trading_days
+ann_vol = port_ret_daily.std(ddof=0) * math.sqrt(trading_days)  # population stdev for stability
+sharpe = (ann_ret - risk_free_rate) / ann_vol if ann_vol > 0 else np.nan
+
+print("\n=== ORP Portfolio Performance Stats ({} → {}) ===".format(
+    equity.index[0].date(), equity.index[-1].date()))
+print(f"CAGR:               {cagr:.2%}")
+print(f"Annualized Return:  {ann_ret:.2%}")
+print(f"Annualized Vol:     {ann_vol:.2%}")
+print(f"Sharpe Ratio:       {sharpe:.3f}   (rf = {risk_free_rate:.2%})")
+
+# --- 6) Plot equity curve and drawdown ---
+fig = plt.figure(figsize=(9, 6), constrained_layout=True)
+gs = fig.add_gridspec(nrows=2, ncols=1, height_ratios=[3, 1], hspace=0.05)
+
+ax1 = fig.add_subplot(gs[0])
+ax2 = fig.add_subplot(gs[1], sharex=ax1)
+
+# Equity curve
+ax1.plot(equity.index, equity.values, lw=1.6)
+ax1.set_ylabel('Index Level (start=100)')
+ax1.set_title('ORP Portfolio — Cumulative Return')
+ax1.grid(True, alpha=0.3)
+
+# Annotate peak & trough
+ax1.scatter([peak_date, trough_date],
+            [equity.loc[peak_date], equity.loc[trough_date]],
+            s=70, edgecolor='black', facecolor='yellow', zorder=5)
+ax1.annotate('Peak', xy=(peak_date, equity.loc[peak_date]),
+             xytext=(10, 10), textcoords='offset points')
+ax1.annotate('Trough', xy=(trough_date, equity.loc[trough_date]),
+             xytext=(10, -15), textcoords='offset points')
+
+# Drawdown subplot
+ax2.plot(dd.index, dd.values, lw=1.4)
+ax2.fill_between(dd.index, dd.values, 0, alpha=0.15)
+ax2.set_ylabel('Drawdown')
+ax2.set_xlabel('Date')
+ax2.grid(True, alpha=0.3)
+ax2.set_ylim(min(dd.min() * 1.05, -0.01), 0.02)  # keep 0 near top
+
+plt.show()
+
+# ------------------------------------------------------------------
+# (Optional) If you prefer log-return backtest:
+# log_rets = np.log(data / data.shift(1)).dropna()
+# port_log_daily = log_rets[valid_cols].dot(w_series.values)
+# equity_log = np.exp(port_log_daily.cumsum()) * 100.0
+# ------------------------------------------------------------------
 
 
 #########################################################
