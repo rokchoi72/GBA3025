@@ -278,10 +278,12 @@ ax_txt.text(0.5, 1.0, result_text, ha='center', va='top',
 
 plt.show()
 
-########################################################
-### Step 3 Performance Evaluation of ORP from Step 2 ###
-###     *In-Sample Optimized ORP (Daily Rebalance)*   ###
-#########################################################
+
+
+##########################################################
+### Step 3-A Performance Evaluation of ORP from Step 2 ###
+### In-Sample Optimized ORP (Daily Rebalance)          ###
+##########################################################
 
 # --- 0) Safety checks / inputs taken from previous steps ---
 # Requires: data (Adj Close), risk_free_rate, orp_w, annual_ret
@@ -415,10 +417,11 @@ plt.show()
 # equity_log = np.exp(port_log_daily.cumsum()) * 100.0
 # ------------------------------------------------------------------
 
-#########################################################
-### Step 3-A  ORP (from Step 2) vs Benchmark (BM)     ###
-###            Graphs only (Equity + Drawdown)        ###
-#########################################################
+
+##########################################################
+### Step 3-B Performance Evaluation of ORP from Step 2 ###
+### Option 2 ORP (from Step 2) vs Benchmark (BM)       ###
+##########################################################
 
 import numpy as np
 import pandas as pd
@@ -428,28 +431,39 @@ import yfinance as yf
 
 # ---------- Settings ----------
 # Choose one: 'SPY', 'EQUAL_WEIGHT', '60_40'
-BM_MODE = 'SPY'     # <- 여기만 바꿔서 사용: 'SPY' / 'EQUAL_WEIGHT' / '60_40'
+BM_MODE = 'SPY'     # change here: 'SPY' / 'EQUAL_WEIGHT' / '60_40'
 
-# If BM_MODE == 'SPY'
-bm_symbols_spy = ['SPY']
-
-# If BM_MODE == 'EQUAL_WEIGHT' (equal-weight of your Step 0 asset universe)
-# ex) equal weight of the same columns in `data`
-# no extra symbol list needed
-
-# If BM_MODE == '60_40' (60% SPY, 40% TLT)
-bm_symbols_6040 = ['SPY', 'TLT']
-bm_weights_6040 = np.array([0.60, 0.40])
+bm_symbols_spy = ['SPY']                    # if BM_MODE == 'SPY'
+bm_symbols_6040 = ['SPY', 'TLT']            # if BM_MODE == '60_40'
+bm_weights_6040 = np.array([0.60, 0.40])    # 60% SPY / 40% TLT
 
 # ---------- Safety checks ----------
 assert 'data' in globals() and isinstance(data, pd.DataFrame), "Run Step 0 first to create 'data' (Adj Close)."
 assert 'orp_w' in globals() and orp_w is not None, "Run Step 2 first to compute 'orp_w'."
+assert 'risk_free_rate' in globals(), "Define risk_free_rate for Sharpe calculation."
 
-# ---------- Helper: drawdown ----------
+# ---------- Helpers ----------
 def compute_drawdown(equity: pd.Series):
     run_max = equity.cummax()
     dd = equity / run_max - 1.0
     return dd
+
+def perf_from_equity(equity: pd.Series, rf: float):
+    """Return dict with CAGR, AnnReturn, AnnVol, Sharpe, MaxDD computed from equity curve."""
+    equity = equity.dropna()
+    trading_days = 252
+    years = max((equity.index[-1] - equity.index[0]).days / 365.25, 1e-9)
+    ret_daily = equity.pct_change().dropna()
+    ann_ret = ret_daily.mean() * trading_days
+    ann_vol = ret_daily.std(ddof=0) * math.sqrt(trading_days)
+    sharpe  = (ann_ret - rf) / ann_vol if ann_vol > 0 else np.nan
+    cagr    = (equity.iloc[-1] / equity.iloc[0])**(1/years) - 1
+    dd      = compute_drawdown(equity)
+    max_dd  = float(dd.min())
+    return {"CAGR": cagr, "AnnRet": ann_ret, "AnnVol": ann_vol, "Sharpe": sharpe, "MaxDD": max_dd}
+
+def pct_fmt(x):
+    return f"{x:.2%}" if np.isfinite(x) else "NA"
 
 # ---------- ORP equity (using Step 2 weights over 'data') ----------
 rets = data.pct_change().dropna()
@@ -463,7 +477,6 @@ dd_orp = compute_drawdown(eq_orp)
 
 # ---------- Build Benchmark equity ----------
 if BM_MODE == 'SPY':
-    # load SPY if not already present
     if 'SPY' not in data.columns:
         spy_px = yf.download(bm_symbols_spy, start=rets.index[0], end=rets.index[-1], auto_adjust=False)['Adj Close']
         if isinstance(spy_px, pd.Series):
@@ -475,7 +488,6 @@ if BM_MODE == 'SPY':
     bm_name = "BM: SPY"
 
 elif BM_MODE == 'EQUAL_WEIGHT':
-    # equal weight over the same asset set in 'data'
     n = len(data.columns)
     ew = np.array([1.0/n]*n)
     bm_port = rets.dot(ew)
@@ -483,24 +495,20 @@ elif BM_MODE == 'EQUAL_WEIGHT':
     bm_name = f"BM: Equal-Weight ({n} assets)"
 
 elif BM_MODE == '60_40':
-    # ensure both tickers exist; download if missing
     need = [s for s in bm_symbols_6040 if s not in data.columns]
     if need:
         add_px = yf.download(need, start=rets.index[0], end=rets.index[-1], auto_adjust=False)['Adj Close']
         if isinstance(add_px, pd.Series):
             add_px = add_px.to_frame()
-        # merge to existing data
         merged = data.join(add_px, how='outer').sort_index()
     else:
         merged = data.copy()
     merged = merged[bm_symbols_6040].dropna()
     bm_rets = merged.pct_change().dropna()
-    # align weights
     w60 = pd.Series(bm_weights_6040, index=bm_symbols_6040).reindex(bm_rets.columns).values
     bm_port = bm_rets.dot(w60)
     eq_bm = (1.0 + bm_port).cumprod() * 100.0
     bm_name = "BM: 60/40 (SPY/TLT)"
-
 else:
     raise ValueError("BM_MODE must be one of: 'SPY', 'EQUAL_WEIGHT', '60_40'.")
 
@@ -509,11 +517,33 @@ common_idx = eq_orp.index.intersection(eq_bm.index)
 eq_orp_c = eq_orp.reindex(common_idx).dropna()
 eq_bm_c  = eq_bm.reindex(common_idx).dropna()
 
-# start=100 normalization (defensive)
+# Rebase to 100 at common start
 eq_orp_c = eq_orp_c / eq_orp_c.iloc[0] * 100.0
 eq_bm_c  = eq_bm_c  / eq_bm_c.iloc[0]  * 100.0
 
 dd_bm = compute_drawdown(eq_bm_c)
+
+# ---------- Print weights + performance summary (ABOVE the charts) ----------
+print("\n=== ORP Weights Used for Backtest (% of portfolio) ===")
+print((w_series * 100).round(2).rename("Weight %"))
+
+stats_orp = perf_from_equity(eq_orp_c, risk_free_rate)
+stats_bm  = perf_from_equity(eq_bm_c,  risk_free_rate)
+
+summary = pd.DataFrame({
+    "CAGR":   [stats_orp["CAGR"],  stats_bm["CAGR"]],
+    "Ann Ret":[stats_orp["AnnRet"],stats_bm["AnnRet"]],
+    "Ann Vol":[stats_orp["AnnVol"],stats_bm["AnnVol"]],
+    "Sharpe": [stats_orp["Sharpe"],stats_bm["Sharpe"]],
+    "Max DD": [stats_orp["MaxDD"], stats_bm["MaxDD"]],
+}, index=["ORP", "BM"])
+summary.index.name = "Strategy"
+
+# Format to look like your example (Sharpe also shown as %)
+summary_fmt = summary.applymap(pct_fmt)
+
+print(f"\n=== Performance Summary ({common_idx[0].date()} \u2192 {common_idx[-1].date()}) ===")
+print(summary_fmt)
 
 # ---------- Plot: Equity (log) + Drawdown ----------
 fig, (ax1, ax2) = plt.subplots(nrows=2, ncols=1, figsize=(9, 7),
@@ -528,7 +558,7 @@ ax1.set_ylabel("Index Level (log)")
 ax1.grid(True, which='both', alpha=0.3)
 ax1.legend(loc='upper left')
 
-# Drawdown (no legend per 요청 가능)
+# Drawdown (no legend)
 ax2.plot(dd_orp.index, dd_orp.values, lw=1.3)       # ORP
 ax2.plot(dd_bm.index,  dd_bm.values,  lw=1.3)       # BM
 ax2.set_ylabel("Drawdown")
@@ -540,10 +570,10 @@ plt.tight_layout()
 plt.show()
 
 
-#########################################################
-### Step 3-B  Performance Evaluation                  ###
-###   Buy & Hold vs Daily Rebal vs Monthly Rebal      ###
-#########################################################
+##########################################################
+### Step 3-C Performance Evaluation of ORP from Step 2 ###
+### Buy & Hold vs Daily Rebal vs Monthly Rebal         ###
+##########################################################
 
 # --- Safety checks ---
 assert 'data' in globals(), "Run Step 0 first (to create 'data')."
@@ -679,9 +709,10 @@ ax.legend()
 plt.tight_layout()
 plt.show()
 
+
 #########################################################
 ### Step 4  User-Defined Portfolios (Fixed Weights)   ###
-###         Monthly Rebalancing + Comparison          ###
+###         ORP and 36M Rolling ORP (Monthly Rebal    ###
 #########################################################
 
 import numpy as np
