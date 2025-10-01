@@ -121,15 +121,25 @@ four = four.dropna(subset=['excess_rtn', 'mkt', 'smb', 'hml', 'mom'])
 if four.empty:
     raise ValueError("Merged dataset is empty after alignment/NA drop. Check overlapping periods.")
 
-# ---------- 5) Run regressions ----------
+# ---------- 5) Run regressions with styled output ----------
 capm = smf.ols('excess_rtn ~ mkt', data=four).fit()
-print("\n=== CAPM (One-Factor) ===")
+print("\n\n**CAPM (One-Factor)**\n")
 print(capm.summary())
 
 ff3_model = smf.ols('excess_rtn ~ mkt + smb + hml', data=four).fit()
-print("\n=== Fama-French Three-Factor ===")
+print("\n\n**Fama-French Three-Factor**\n")
 print(ff3_model.summary())
 
 carhart4 = smf.ols('excess_rtn ~ mkt + smb + hml + mom', data=four).fit()
-print("\n=== Carhart Four-Factor (adds Momentum) ===")
+print("\n\n**Carhart Four-Factor (adds Momentum)**\n")
 print(carhart4.summary())
+
+# ---------- 6) Combined table (Method 3: summary_col) ----------
+print("\n\n**Combined Regression Table (summary_col)**\n")
+reg_table = summary_col(
+    [capm, ff3_model, carhart4],
+    stars=True,            # significance stars
+    float_format='%0.4f',  # number format
+    model_names=['CAPM', 'FF3', 'Carhart4'],
+)
+print(reg_table)
