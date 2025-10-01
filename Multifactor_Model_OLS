@@ -1,5 +1,5 @@
 # =========================
-# Fully-robust Carhart (4-factor) regression pipeline
+# Regression pipeline
 # =========================
 # If needed (terminal / notebook):
 #   pip install yfinance pandas_datareader statsmodels
