@@ -1,0 +1,135 @@
+# =========================
+# Fully-robust Carhart (4-factor) regression pipeline
+# =========================
+# If needed (terminal / notebook):
+#   pip install yfinance pandas_datareader statsmodels
+
+import warnings
+warnings.filterwarnings("ignore", category=FutureWarning)  # optional: quiet noisy deprecation warnings
+
+import pandas as pd
+import yfinance as yf
+import statsmodels.formula.api as smf
+import pandas_datareader.data as web
+
+# ---------- Inputs ----------
+RISKY_ASSET = 'AMZN'
+START_DATE = '2000-01-01'
+END_DATE   = '2025-09-30'   # valid end date (September 30)
+
+# ---------- 1) Download risky asset & build monthly returns (robust) ----------
+asset_df = yf.download(RISKY_ASSET, start=START_DATE, end=END_DATE, progress=False)
+if asset_df is None or asset_df.empty:
+    raise ValueError("No price data returned. Check ticker, dates, or network connectivity.")
+
+# Pick a price column safely (yfinance changed default: auto_adjust=True puts adjusted price in 'Close')
+if 'Adj Close' in asset_df.columns:
+    price_col = 'Adj Close'
+elif 'Close' in asset_df.columns:
+    price_col = 'Close'
+else:
+    raise KeyError(f"No suitable price column found. Columns: {list(asset_df.columns)}")
+
+# Month-end returns using 'ME' (month-end) to avoid future deprecation of 'M'
+y = (
+    asset_df[price_col]
+    .resample('ME').last()
+    .pct_change()
+    .dropna()
+)
+
+# Ensure DataFrame with a guaranteed column name 'rtn'
+if isinstance(y, pd.Series):
+    y = y.to_frame('rtn')
+else:
+    # In the unlikely case it's already a DataFrame (e.g., multi-col), rename the first column to 'rtn'
+    first_col = y.columns[0]
+    if first_col != 'rtn':
+        y = y.rename(columns={first_col: 'rtn'})
+
+# Use monthly PeriodIndex to match Fama-French indices
+y.index = y.index.to_period('M')
+
+if y.empty:
+    raise ValueError("Monthly return series is empty after processing. Check ticker or date range.")
+
+# ---------- 2) Download Fama-French factors (3-factor + Momentum) ----------
+# DataReader('famafrench') returns a dict-like; [0] is the monthly factors dataframe.
+ff3 = web.DataReader('F-F_Research_Data_Factors', 'famafrench', start=START_DATE, end=END_DATE)[0]
+mom = web.DataReader('F-F_Momentum_Factor', 'famafrench', start=START_DATE, end=END_DATE)[0]
+
+if ff3 is None or ff3.empty:
+    raise ValueError("Failed to load F-F 3 factors.")
+if mom is None or mom.empty:
+    raise ValueError("Failed to load F-F momentum factor.")
+
+# Ensure monthly PeriodIndex (usually already true)
+if not isinstance(ff3.index, pd.PeriodIndex):
+    ff3.index = pd.PeriodIndex(ff3.index, freq='M')
+if not isinstance(mom.index, pd.PeriodIndex):
+    mom.index = pd.PeriodIndex(mom.index, freq='M')
+
+# ---------- 3) Merge all datasets ----------
+four = ff3.join(mom, how='inner')     # 3 factors + momentum
+four = four.join(y, how='inner')      # add asset returns ('rtn')
+
+if four.empty:
+    raise ValueError("No overlapping dates between asset returns and Fama-French factors.")
+
+# Rename standard FF columns safely (only those present)
+colmap = {'Mkt-RF': 'mkt', 'SMB': 'smb', 'HML': 'hml', 'RF': 'rf'}
+four = four.rename(columns={k: v for k, v in colmap.items() if k in four.columns})
+
+# Identify the momentum column robustly (sometimes it includes extra spaces or different casing)
+mom_candidates = [c for c in four.columns if c.strip().lower() in {'mom', 'momentum'}]
+if not mom_candidates:
+    # Fallback: use whichever column(s) came from the momentum table
+    mom_candidates = list(mom.columns)
+
+# If multiple candidates exist (rare), pick the one whose stripped name matches best
+if len(mom_candidates) > 1:
+    exact = [c for c in mom_candidates if c.strip().lower() == 'mom']
+    mom_candidates = exact if exact else [mom_candidates[0]]
+
+if len(mom_candidates) != 1:
+    raise ValueError(f"Could not uniquely identify momentum column. Candidates found: {mom_candidates}")
+
+four = four.rename(columns={mom_candidates[0]: 'mom'})
+
+# Ensure 'rtn' exists (it should from the join above)
+if 'rtn' not in four.columns:
+    # Sometimes the join can carry the ticker name; handle defensively
+    # Try to find a column that matches the ticker or looks like returns
+    alt_candidates = [c for c in four.columns if c.strip().upper() == RISKY_ASSET]
+    if alt_candidates:
+        four = four.rename(columns={alt_candidates[0]: 'rtn'})
+    else:
+        raise KeyError(f"'rtn' column missing after merge; columns are: {list(four.columns)}")
+
+# ---------- 4) Scale factors & compute excess return ----------
+# Fama-French data comes in percent units (e.g., 1.23). Convert to decimals.
+for c in ['mkt', 'smb', 'hml', 'rf', 'mom']:
+    if c not in four.columns:
+        raise KeyError(f"Required factor '{c}' is missing from merged data. Got: {list(four.columns)}")
+    four[c] = four[c] / 100.0
+
+# Excess return of the risky asset
+four['excess_rtn'] = four['rtn'] - four['rf']
+
+# Drop any rows with missing data (alignment issues)
+four = four.dropna(subset=['excess_rtn', 'mkt', 'smb', 'hml', 'mom'])
+if four.empty:
+    raise ValueError("Merged dataset is empty after alignment/NA drop. Check overlapping periods.")
+
+# ---------- 5) Run regressions ----------
+capm = smf.ols('excess_rtn ~ mkt', data=four).fit()
+print("\n=== CAPM (One-Factor) ===")
+print(capm.summary())
+
+ff3_model = smf.ols('excess_rtn ~ mkt + smb + hml', data=four).fit()
+print("\n=== Fama-French Three-Factor ===")
+print(ff3_model.summary())
+
+carhart4 = smf.ols('excess_rtn ~ mkt + smb + hml + mom', data=four).fit()
+print("\n=== Carhart Four-Factor (adds Momentum) ===")
+print(carhart4.summary())
