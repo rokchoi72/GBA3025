@@ -10,7 +10,7 @@ import pandas_datareader.data as web
 ### Step 2. Specify the risky asset and the time horizon:
 RISKY_ASSET = 'AMZN'
 START_DATE = '2000-01-01'
-END_DATE = '2020-12-31'
+END_DATE = '2025-9-31'
 
 
 ### Step 3. Download the data of the risky asset from Yahoo Finance and Calculate the monthly returns:
