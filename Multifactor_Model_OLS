@@ -135,6 +135,8 @@ print("\n\n**Carhart Four-Factor (adds Momentum)**\n")
 print(carhart4.summary())
 
 # ---------- 6) Combined table (Method 3: summary_col) ----------
+from statsmodels.iolib.summary2 import summary_col   # <-- add this
+
 print("\n\n**Combined Regression Table (summary_col)**\n")
 reg_table = summary_col(
     [capm, ff3_model, carhart4],
