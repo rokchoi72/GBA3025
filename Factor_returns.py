@@ -11,7 +11,7 @@ import seaborn as sns
 
 ## Step 1. Define the data period
 START_DATE = '1962-01-01'
-END_DATE = '2025-9-30'
+END_DATE = '2008-9-30'
 
 
 ### Step 2. Download the risk factors from prof. French's website:
